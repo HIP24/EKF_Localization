@@ -63,10 +63,6 @@ z_t.clear();
 }
 
 
-
-
-
-
 class EKF_Loc {
 private:
     Eigen::Vector2d mu;
