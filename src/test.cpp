@@ -29,7 +29,8 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
 {
   if (!odomCallbackPrinted) {
     //ROS_INFO("Received odom: (%f, %f, %f)", msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
-    //odomCallbackPrinted = true;
+    std::cout << "Received odom: (" << msg->pose.pose.position.x << ", " << msg->pose.pose.position.y << ", " << msg->pose.pose.position.z << ")" << std::endl;
+    odomCallbackPrinted = true;
 
     double v = msg->twist.twist.linear.x;  // Forward velocity
     double w = msg->twist.twist.angular.z; // Rotational velocity
@@ -38,16 +39,14 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
   }
 }
 
-
-
-
 // scan callback function
 void scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
 {
-  //if (!scanCallbackPrinted) {
-  //  ROS_INFO("Received scan: ranges size: %zu", msg->ranges.size());
-  //  scanCallbackPrinted = true;
-  //}
+  if (!scanCallbackPrinted) {
+    //ROS_INFO("Received scan: ranges size: %zu", msg->ranges.size());
+    //std::cout << "Received scan: ranges size: " << msg->ranges.size() << std::endl;
+    scanCallbackPrinted = true;
+  }
 
 z_t.clear();
     double current_angle = msg->angle_min;
@@ -98,6 +97,9 @@ public:
     }
 
     void printSigma() {
+        //std::stringstream ss;
+        //ss << "Sigma: " << std::endl << Sigma << std::endl;
+        //ROS_INFO("%s", ss.str().c_str());
         std::cout << "Sigma: " << std::endl << Sigma << std::endl;
     }
 
@@ -121,7 +123,8 @@ int main(int argc, char** argv){
   MoveBaseClient ac("move_base", true);
 
   while(!ac.waitForServer(ros::Duration(5.0))){
-    ROS_INFO("Waiting for the move_base action server to come up");
+    //ROS_INFO("Waiting for the move_base action server to come up");
+    std::cout << "Waiting for the move_base action server to come up" << std::endl;
   }
 
   // Define an array of 4 points
@@ -140,7 +143,8 @@ int main(int argc, char** argv){
     goal.target_pose.pose.position.y = points[i][1];
     goal.target_pose.pose.orientation.w = 1;
 
-    ROS_INFO("Sending goal %d", i+1);
+    //ROS_INFO("Sending goal %d", i+1);
+    std::cout << "Sending goal " << i+1 << std::endl;
     ac.sendGoal(goal);
     ac.waitForResult();
 
@@ -148,10 +152,11 @@ int main(int argc, char** argv){
     ekf.printSigma();
     
     if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
-      ROS_INFO("Hooray, the base moved to point %d", i+1);
+      //ROS_INFO("Hooray, the base moved to point %d", i+1);
+      std::cout << "Hooray, the base moved to point " << i+1 << std::endl;
     else
-      ROS_INFO("The base failed to move to point %d for some reason", i+1);
-
+      //ROS_INFO("The base failed to move to point %d for some reason", i+1);
+      std::cout << "The base failed to move to point "<< i+1 << "for some reason" << std::endl;
 
 
     ros::spinOnce();
