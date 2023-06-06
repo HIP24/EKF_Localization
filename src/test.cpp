@@ -9,6 +9,8 @@
 
 #include <sensor_msgs/LaserScan.h>
 #include <vector>
+#include <map>
+#include <string>
 
 // Global variable to hold the control input
 Eigen::Vector2d u_t;
@@ -61,11 +63,36 @@ z_t.clear();
 
 }
 
+/*
+// Create a struct to hold the x and y coordinates of each landmark
+struct Landmark {
+    double x;
+    double y;
+};
+
+// Create a map to hold all the landmarks
+std::map<std::string, Landmark> landmarks = {
+    {"one_one",   {-1.1, -1.1}},
+    {"one_two",   {-1.1,  0}},
+    {"one_three", {-1.1,  1.1}},
+    {"two_one",   {0,    -1.1}},
+    {"two_two",   {0,     0}},
+    {"two_three", {0,     1.1}},
+    {"three_one", {1.1,  -1.1}},
+    {"three_two", {1.1,   0}},
+    {"three_three",{1.1,  1.1}},
+    {"head",      {3.5,   0}},
+    {"left_hand", {1.8,   2.7}},
+    {"right_hand",{1.8,  -2.7}},
+    {"left_foot", {-1.8,  2.7}},
+    {"right_foot",{-1.8, -2.7}}
+};
+*/
 
 class EKF_Loc {
 private:
-    Eigen::Vector2d mu;
-    Eigen::Matrix2d Sigma;
+    Eigen::Vector2d xt;
+    Eigen::Matrix2d cov;
 
     Eigen::Matrix2d A;
     Eigen::Matrix2d B;
@@ -73,6 +100,10 @@ private:
 
     double delta_t; // time step
     double sigma;   // noise standard deviation
+    
+    Eigen::Matrix2d C;
+    Eigen::Matrix2d Q;
+
 
 public:
     EKF_Loc() {
@@ -87,25 +118,53 @@ public:
 
         R = pow(sigma, 2) * Eigen::Matrix2d::Identity();
 
-        mu << 0.5, 0.5;  // initialize with the initial pose
-        Sigma = Eigen::Matrix2d::Identity();
+        xt << 0.5, 0.5;  // initialize with the initial pose
+
+        // Initialize cov using covariance information from /odom message
+        cov << 1e-05, 0,
+                 0, 1e-05;
+
+        // Inside EKF_Loc constructor
+        C << 1, 0,
+             0, 1;
+        Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
     }
 
     void predict(const Eigen::Vector2d& u_t) {
-        mu = A * mu + B * u_t;  // prediction
-        Sigma = A * Sigma * A.transpose() + R;  // update error covariance
+        xt = A * xt + B * u_t;  // prediction
+        cov = A * cov * A.transpose() + R;  // update error covariance
     }
 
-    void printSigma() {
-        //std::stringstream ss;
-        //ss << "Sigma: " << std::endl << Sigma << std::endl;
-        //ROS_INFO("%s", ss.str().c_str());
-        std::cout << "Sigma: " << std::endl << Sigma << std::endl;
+    void printCov() {
+        std::cout << "Cov: " << std::endl << cov << std::endl;
     }
+
+    void correct(const std::vector<std::pair<double, double>>& z_t) {
+        // For simplicity, we'll use the first observation in z_t.
+        // In a more realistic setting, you'd need to associate each observed landmark with the predicted landmark.
+        if (!z_t.empty()) {
+            Eigen::Vector2d z = Eigen::Vector2d(z_t[0].first, z_t[0].second);
+
+            // Compute the Kalman gain
+            Eigen::Matrix2d S = C * cov * C.transpose() + Q;
+            Eigen::Matrix2d K = cov * C.transpose() * S.inverse();
+
+            // Compute the posterior state estimate
+            xt = xt + K * (z - C * xt);
+
+            // Compute the posterior error covariance estimate
+            cov = (Eigen::Matrix2d::Identity() - K * C) * cov;
+        }
+    }
+
 
     // TODO: Implement the correct method
 
 };
+
+
+
+
 
 
 
@@ -144,12 +203,19 @@ int main(int argc, char** argv){
     goal.target_pose.pose.orientation.w = 1;
 
     //ROS_INFO("Sending goal %d", i+1);
+    std::cout << "\r\n\r\n\r\n";
     std::cout << "Sending goal " << i+1 << std::endl;
     ac.sendGoal(goal);
     ac.waitForResult();
 
     ekf.predict(u_t);
-    ekf.printSigma();
+    ekf.printCov();
+    if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED) {
+    ekf.correct(z_t);
+    std::cout << "After correction: " << std::endl;
+    ekf.printCov();
+    }
+
     
     if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
       //ROS_INFO("Hooray, the base moved to point %d", i+1);
