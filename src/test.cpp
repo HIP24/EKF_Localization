@@ -91,7 +91,7 @@ std::map<std::string, Landmark> landmarks = {
 
 class EKF_Loc {
 private:
-    Eigen::Vector2d xt;
+    Eigen::Vector2d mt;
     Eigen::Matrix2d cov;
 
     Eigen::Matrix2d A;
@@ -118,7 +118,7 @@ public:
 
         R = pow(sigma, 2) * Eigen::Matrix2d::Identity();
 
-        xt << 0.5, 0.5;  // initialize with the initial pose
+        mt << 0.5, 0.5;  // initialize with the initial pose
 
         // Initialize cov using covariance information from /odom message
         cov << 1e-05, 0,
@@ -131,7 +131,7 @@ public:
     }
 
     void predict(const Eigen::Vector2d& u_t) {
-        xt = A * xt + B * u_t;  // prediction
+        mt = A * mt + B * u_t;  // prediction
         cov = A * cov * A.transpose() + R;  // update error covariance
     }
 
@@ -140,8 +140,6 @@ public:
     }
 
     void correct(const std::vector<std::pair<double, double>>& z_t) {
-        // For simplicity, we'll use the first observation in z_t.
-        // In a more realistic setting, you'd need to associate each observed landmark with the predicted landmark.
         if (!z_t.empty()) {
             Eigen::Vector2d z = Eigen::Vector2d(z_t[0].first, z_t[0].second);
 
@@ -150,7 +148,7 @@ public:
             Eigen::Matrix2d K = cov * C.transpose() * S.inverse();
 
             // Compute the posterior state estimate
-            xt = xt + K * (z - C * xt);
+            mt = mt + K * (z - C * mt);
 
             // Compute the posterior error covariance estimate
             cov = (Eigen::Matrix2d::Identity() - K * C) * cov;
@@ -209,20 +207,21 @@ int main(int argc, char** argv){
     ac.waitForResult();
 
     ekf.predict(u_t);
+    std::cout << "\n\rAfter prediction: " << std::endl;
     ekf.printCov();
     if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED) {
     ekf.correct(z_t);
-    std::cout << "After correction: " << std::endl;
+    std::cout << "\n\rAfter correction: " << std::endl;
     ekf.printCov();
     }
 
     
     if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
       //ROS_INFO("Hooray, the base moved to point %d", i+1);
-      std::cout << "Hooray, the base moved to point " << i+1 << std::endl;
+      std::cout << "\n\rHooray, the base moved to point " << i+1 << std::endl;
     else
       //ROS_INFO("The base failed to move to point %d for some reason", i+1);
-      std::cout << "The base failed to move to point "<< i+1 << "for some reason" << std::endl;
+      std::cout << "\n\rThe base failed to move to point "<< i+1 << "for some reason" << std::endl;
 
 
     ros::spinOnce();
