@@ -129,11 +129,14 @@ public:
              0, 1;
         Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
     }
+    
 
-    void predict(const Eigen::Vector2d& u_t) {
-        mt = A * mt + B * u_t;  // prediction
-        cov = A * cov * A.transpose() + R;  // update error covariance
+    std::pair<Eigen::Vector2d, Eigen::Matrix2d> predict(const Eigen::Vector2d& ut, const Eigen::Vector2d& mt_prev, const Eigen::Matrix2d& cov_prev) {
+        Eigen::Vector2d mt = A * mt_prev + B * ut;  // prediction
+        Eigen::Matrix2d cov = A * cov_prev * A.transpose() + R;  // update error covariance
+        return std::make_pair(mt, cov);
     }
+
 
     void printCov() {
         std::cout << "Cov: " << std::endl << cov << std::endl;
@@ -155,7 +158,23 @@ public:
         }
     }
 
+    // Getter methods
+    Eigen::Vector2d getMt() const {
+        return mt;
+    }
 
+    Eigen::Matrix2d getCov() const {
+        return cov;
+    }
+
+    // Setter methods
+    void setMt(const Eigen::Vector2d& newMt) {
+        mt = newMt;
+    }
+
+    void setCov(const Eigen::Matrix2d& newCov) {
+        cov = newCov;
+    }
     // TODO: Implement the correct method
 
 };
@@ -206,7 +225,13 @@ int main(int argc, char** argv){
     ac.sendGoal(goal);
     ac.waitForResult();
 
-    ekf.predict(u_t);
+    Eigen::Vector2d newMt;
+    Eigen::Matrix2d newCov;
+    std::tie(newMt, newCov) = ekf.predict(u_t, ekf.getMt(), ekf.getCov());
+
+    ekf.setMt(newMt);
+    ekf.setCov(newCov);
+
     std::cout << "\n\rAfter prediction: " << std::endl;
     ekf.printCov();
     if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED) {
