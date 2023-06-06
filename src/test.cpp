@@ -18,13 +18,11 @@ Eigen::Vector2d u_t;
 // Global variable to hold the sensor measurements
 std::vector<std::pair<double, double>> z_t; // Each pair is <range, angle>
 
-
 typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
 
 // Global variables to keep track of whether a message has been printed in the callback functions
 bool odomCallbackPrinted = false;
 bool scanCallbackPrinted = false;
-
 
 // odom callback function
 void odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
@@ -63,7 +61,6 @@ z_t.clear();
 
 }
 
-
 // Create a struct to hold the x and y coordinates of each landmark
 struct Landmark {
     double x;
@@ -87,7 +84,6 @@ std::map<std::string, Landmark> landmarks = {
     {"left_foot", {-1.8,  2.7}},
     {"right_foot",{-1.8, -2.7}}
 };
-
 
 class EKF_Loc {
 private:
@@ -142,44 +138,42 @@ public:
         std::cout << "Cov: " << std::endl << cov << std::endl;
     }
 
-    void correct(const std::vector<std::pair<double, double>>& z_t) {
+void correct(const std::vector<std::pair<double, double>>& z_t, const std::vector<std::string>& c_t) {
     if (!z_t.empty()) {
-        // Compute the Kalman gain
-        Eigen::Matrix2d S = C * cov * C.transpose() + Q;
-        Eigen::Matrix2d K = cov * C.transpose() * S.inverse();
 
-        // Compute the expected measurement for each landmark
-        for (const auto& landmark : landmarks) {
-            double dx = landmark.second.x - mt(0);
-            double dy = landmark.second.y - mt(1);
-            double expected_range = sqrt(dx * dx + dy * dy);
-            double expected_bearing = atan2(dy, dx);
+        for (int i = 0; i < z_t.size(); ++i) {
+            // Determine the index of the landmark corresponding to the observed feature
+            std::string j = c_t[i];
 
-            // Find the measurement closest to the expected measurement
-            double min_error = std::numeric_limits<double>::max();
-            std::pair<double, double> closest_measurement;
-            for (const auto& measurement : z_t) {
-                double range_error = measurement.first - expected_range;
-                double bearing_error = measurement.second - expected_bearing;
-                double error = range_error * range_error + bearing_error * bearing_error;
-                if (error < min_error) {
-                    min_error = error;
-                    closest_measurement = measurement;
-                }
-            }
+            // Calculate the vector Δ as the difference between the landmark position and the robot position
+            Eigen::Vector2d delta;
+            delta << landmarks[j].x - mt(0), landmarks[j].y - mt(1);
+
+            // Calculate the variable q as the squared magnitude of Δ
+            double q = delta.squaredNorm();
+
+            // Calculate the expected measurement ^zit based on Δ and q
+            Eigen::Vector2d expected_z;
+            expected_z << sqrt(q), atan2(delta(1), delta(0));
+
+            // Calculate the Jacobian matrix Hit based on Δ and q
+            Eigen::Matrix<double, 2, 2> H;
+            H << -delta(0) / sqrt(q), -delta(1) / sqrt(q),
+                  delta(1) / q, -delta(0) / q;
+
+            // Calculate the Kalman gain Kit based on Hit, Qt, and Σt
+            Eigen::Matrix2d K = cov * H.transpose() * (H * cov * H.transpose() + Q).inverse();
 
             // Compute the innovation
-            Eigen::Vector2d z(closest_measurement.first, closest_measurement.second);
-            Eigen::Vector2d expected_z(expected_range, expected_bearing);
+            Eigen::Vector2d z(z_t[i].first, z_t[i].second);
             Eigen::Vector2d innovation = z - expected_z;
 
             // Compute the posterior state
             mt = mt + K * innovation;
-            cov = (Eigen::Matrix2d::Identity() - K * C) * cov;
+            cov = (Eigen::Matrix2d::Identity() - K * H) * cov;
         }
     }
 }
-
 
     // Getter methods
     Eigen::Vector2d getMt() const {
@@ -198,16 +192,7 @@ public:
     void setCov(const Eigen::Matrix2d& newCov) {
         cov = newCov;
     }
-    // TODO: Implement the correct method
-
 };
-
-
-
-
-
-
-
 
 int main(int argc, char** argv){
   ros::init(argc, argv, "map_navigation");
@@ -259,7 +244,35 @@ int main(int argc, char** argv){
 
     //correction
     if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED) {
-    ekf.correct(z_t);
+      
+    // Define a vector of correspondence variables
+std::vector<std::string> c_t;
+for (const auto& measurement : z_t) {
+    // Find the landmark closest to the measurement
+    double min_distance = std::numeric_limits<double>::max();
+    std::string closest_landmark;
+    for (const auto& landmark : landmarks) {
+        double dx = measurement.first - landmark.second.x;
+        double dy = measurement.second - landmark.second.y;
+        double distance = sqrt(dx * dx + dy * dy);
+        if (distance < min_distance) {
+            min_distance = distance;
+            closest_landmark = landmark.first;
+        }
+    }
+
+    // Add the closest landmark to c_t
+    c_t.push_back(closest_landmark);
+
+    // Print the correspondence
+    //std::cout << "Measurement: (" << measurement.first << ", " << measurement.second << ") -> Landmark: " << closest_landmark << std::endl;
+}
+
+
+
+  // Call the correct method with z_t and c_t as arguments
+  ekf.correct(z_t, c_t);
+
     std::cout << "\n\rAfter correction: " << std::endl;
     ekf.printCov();
     }
@@ -278,3 +291,5 @@ int main(int argc, char** argv){
 
   return 0;
 }
+
+
