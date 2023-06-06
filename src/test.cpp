@@ -63,7 +63,7 @@ z_t.clear();
 
 }
 
-/*
+
 // Create a struct to hold the x and y coordinates of each landmark
 struct Landmark {
     double x;
@@ -87,7 +87,7 @@ std::map<std::string, Landmark> landmarks = {
     {"left_foot", {-1.8,  2.7}},
     {"right_foot",{-1.8, -2.7}}
 };
-*/
+
 
 class EKF_Loc {
 private:
@@ -143,20 +143,43 @@ public:
     }
 
     void correct(const std::vector<std::pair<double, double>>& z_t) {
-        if (!z_t.empty()) {
-            Eigen::Vector2d z = Eigen::Vector2d(z_t[0].first, z_t[0].second);
+    if (!z_t.empty()) {
+        // Compute the Kalman gain
+        Eigen::Matrix2d S = C * cov * C.transpose() + Q;
+        Eigen::Matrix2d K = cov * C.transpose() * S.inverse();
 
-            // Compute the Kalman gain
-            Eigen::Matrix2d S = C * cov * C.transpose() + Q;
-            Eigen::Matrix2d K = cov * C.transpose() * S.inverse();
+        // Compute the expected measurement for each landmark
+        for (const auto& landmark : landmarks) {
+            double dx = landmark.second.x - mt(0);
+            double dy = landmark.second.y - mt(1);
+            double expected_range = sqrt(dx * dx + dy * dy);
+            double expected_bearing = atan2(dy, dx);
 
-            // Compute the posterior state estimate
-            mt = mt + K * (z - C * mt);
+            // Find the measurement closest to the expected measurement
+            double min_error = std::numeric_limits<double>::max();
+            std::pair<double, double> closest_measurement;
+            for (const auto& measurement : z_t) {
+                double range_error = measurement.first - expected_range;
+                double bearing_error = measurement.second - expected_bearing;
+                double error = range_error * range_error + bearing_error * bearing_error;
+                if (error < min_error) {
+                    min_error = error;
+                    closest_measurement = measurement;
+                }
+            }
 
-            // Compute the posterior error covariance estimate
+            // Compute the innovation
+            Eigen::Vector2d z(closest_measurement.first, closest_measurement.second);
+            Eigen::Vector2d expected_z(expected_range, expected_bearing);
+            Eigen::Vector2d innovation = z - expected_z;
+
+            // Compute the posterior state
+            mt = mt + K * innovation;
             cov = (Eigen::Matrix2d::Identity() - K * C) * cov;
         }
     }
+}
+
 
     // Getter methods
     Eigen::Vector2d getMt() const {
@@ -225,15 +248,16 @@ int main(int argc, char** argv){
     ac.sendGoal(goal);
     ac.waitForResult();
 
+    //prediction
     Eigen::Vector2d newMt;
     Eigen::Matrix2d newCov;
     std::tie(newMt, newCov) = ekf.predict(u_t, ekf.getMt(), ekf.getCov());
-
     ekf.setMt(newMt);
     ekf.setCov(newCov);
-
     std::cout << "\n\rAfter prediction: " << std::endl;
     ekf.printCov();
+
+    //correction
     if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED) {
     ekf.correct(z_t);
     std::cout << "\n\rAfter correction: " << std::endl;
