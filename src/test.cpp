@@ -12,6 +12,10 @@
 #include <map>
 #include <string>
 
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+
 // Global variable to hold the control input
 Eigen::Vector2d u_t;
 
@@ -21,32 +25,48 @@ std::vector<std::pair<double, double>> z_t; // Each pair is <range, angle>
 typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
 
 // Global variables to keep track of whether a message has been printed in the callback functions
-// bool odomCallbackPrinted = false;
-// bool scanCallbackPrinted = false;
+//bool odomCallbackPrinted = true;
+//bool scanCallbackPrinted = true;
+
+// Define counters
+int odomPrintCount = 0;
+int scanPrintCount = 0;
+
+
+double robot_x, robot_y;
 
 // odom callback function
 void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
 {
-  // if (!odomCallbackPrinted)
+  //if (!odomCallbackPrinted)
   //{
-  //  ROS_INFO("Received odom: (%f, %f, %f)", msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
-  // std::cout << "Received odom: (" << msg->pose.pose.position.x << ", " << msg->pose.pose.position.y << ", " << msg->pose.pose.position.z << ")" << std::endl;
-  // odomCallbackPrinted = true;
+    // ROS_INFO("Received odom: (%f, %f, %f)", msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
+    //std::cout << "Received odom: (" << msg->pose.pose.position.x << ", " << msg->pose.pose.position.y << ", " << msg->pose.pose.position.z << ")" << std::endl;
+    //std::cout << "First Odom: " << *msg << std::endl;
+    ++odomPrintCount;
+    //odomCallbackPrinted = true;
 
-  double v = msg->twist.twist.linear.x;  // Forward velocity
-  double w = msg->twist.twist.angular.z; // Rotational velocity
-  u_t << v, w;
+    double v = msg->twist.twist.linear.x;  // Forward velocity
+    double w = msg->twist.twist.angular.z; // Rotational velocity
+    u_t << v, w;
+
+
+    // Update the robot's x and y coordinates
+    robot_x = msg->pose.pose.position.x;
+    robot_y = msg->pose.pose.position.y;
   //}
 }
 
 // scan callback function
 void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
 {
-  // if (!scanCallbackPrinted)
+
+  //if (!scanCallbackPrinted)
   //{
-  //  ROS_INFO("Received scan: ranges size: %zu", msg->ranges.size());
-  // std::cout << "Received scan: ranges size: " << msg->ranges.size() << std::endl;
-  //  scanCallbackPrinted = true;
+    // ROS_INFO("Received scan: ranges size: %zu", msg->ranges.size());
+    //std::cout << "Received scan: ranges size: " << msg->ranges.size() << std::endl;
+    ++scanPrintCount;
+    //scanCallbackPrinted = true;
   //}
 
   z_t.clear();
@@ -69,8 +89,8 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
 // Create a struct to hold the x and y coordinates of each landmark
 struct Landmark
 {
-  double x;
-  double y;
+  double landX;
+  double landY;
 };
 
 // Create a map to hold all the landmarks
@@ -157,7 +177,7 @@ public:
 
         // Calculate the vector Δ as the difference between the landmark position and the robot position
         Eigen::Vector2d delta;
-        delta << landmarks[j].x - mt(0), landmarks[j].y - mt(1);
+        delta << landmarks[j].landX - mt(0), landmarks[j].landY - mt(1);
 
         // Calculate the variable q as the squared magnitude of Δ
         double q = delta.squaredNorm();
@@ -211,11 +231,11 @@ public:
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "map_navigation");
-  ros::NodeHandle n;
+  ros::NodeHandle nodeHandle;
 
   // Subscribers
-  ros::Subscriber odom_sub = n.subscribe("/odom", 1000, odomCallback);
-  ros::Subscriber scan_sub = n.subscribe("/scan", 1000, scanCallback);
+  ros::Subscriber odom_sub = nodeHandle.subscribe("/odom", 1000, odomCallback);
+  ros::Subscriber scan_sub = nodeHandle.subscribe("/scan", 1000, scanCallback);
 
   EKF_Loc ekf;
 
@@ -229,17 +249,16 @@ int main(int argc, char **argv)
 
   // Define an array of 4 points
   double points[4][2] = {{1.5, 0}, {-4, 0}, {1.5, -2}, {1, 2}};
-  // 0.5,0.5 -> 2,0.5 -> -2,0.5 -> -0.5,-1.5 -> 0.5,0.5
+  // (0.5 | 0.5) -> (2 | 0.5) -> (-2 | 0.5) -> (-0.5 | -1.5) -> (0.5 | 0.5)
 
   for (int i = 0; i < 4; i++)
   {
-    // Reset the printed variable in the callback functions
-    // odomCallbackPrinted = false;
-    // scanCallbackPrinted = false;
+
 
     move_base_msgs::MoveBaseGoal goal;
     goal.target_pose.header.frame_id = "base_link";
     goal.target_pose.header.stamp = ros::Time::now();
+
     goal.target_pose.pose.position.x = points[i][0];
     goal.target_pose.pose.position.y = points[i][1];
     goal.target_pose.pose.orientation.w = 1;
@@ -247,8 +266,41 @@ int main(int argc, char **argv)
     // ROS_INFO("Sending goal %d", i+1);
     std::cout << "\r\n\r\n\r\n";
     std::cout << "Sending goal " << i + 1 << std::endl;
+    //std::cout << "----------------------------------------------------------------Entering sendGoal" << std::endl;
     ac.sendGoal(goal);
+    //std::cout << "----------------------------------------------------------------Exiting sendGoal" << std::endl;
+
+    //std::cout << "----------------------------------------------------------------Entering waitForResult" << std::endl;
     ac.waitForResult();
+    //std::cout << "----------------------------------------------------------------Exiting waitForResult" << std::endl;
+
+    //std::cout << "----------------------------------------------------------------Entering spinOnce" << std::endl;
+    // Reset the printed variable in the callback functions
+    //odomCallbackPrinted = false;
+    //scanCallbackPrinted = false;
+    ros::spinOnce();
+    //std::cout << "----------------------------------------------------------------Exiting spinOnce" << std::endl;
+    
+    tf2_ros::Buffer tfBuffer;
+    tf2_ros::TransformListener tfListener(tfBuffer);
+    
+    geometry_msgs::TransformStamped transformStamped;
+    try {
+      if (tfBuffer.canTransform("map", "base_link", ros::Time(0), ros::Duration(3.0))) {
+        transformStamped = tfBuffer.lookupTransform("map", "base_link", ros::Time(0));
+      } else {
+        ROS_WARN("Transformation not possible");
+      }
+    } catch (tf2::TransformException &ex) {
+      ROS_WARN("%s", ex.what());
+      ros::Duration(1.0).sleep();
+      // continue processing...
+    }
+    
+    double robot_x = transformStamped.transform.translation.x;
+    double robot_y = transformStamped.transform.translation.y;
+    
+    std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl;
 
     // prediction
     Eigen::Vector2d newMt;
@@ -256,7 +308,7 @@ int main(int argc, char **argv)
     std::tie(newMt, newCov) = ekf.predict(u_t, ekf.getMt(), ekf.getCov());
     ekf.setMt(newMt);
     ekf.setCov(newCov);
-    std::cout << "\n\rAfter prediction: " << std::endl;
+    std::cout << "\n\r############## After prediction ##############" << std::endl;
     ekf.printCov();
 
     // correction
@@ -265,61 +317,68 @@ int main(int argc, char **argv)
 
       // Define a vector of correspondence variables
       std::vector<std::string> c_t;
-
+      // Print the counts
+      std::cout << std::endl;
+      std::cout << "odomCallback was called " << odomPrintCount << " times." << std::endl;
+      odomPrintCount = 0;
+      std::cout << "scanCallback was called " << scanPrintCount << " times." << std::endl;
+      scanPrintCount = 0;
       // Print the size of z_t
-      std::cout << "\r\nz_t size: " << z_t.size() << std::endl;
+      std::cout << "\r\nz_t size: " << z_t.size() << "\r\n"
+                << std::endl;
 
-      // Define a map to keep track of the number of times each landmark was chosen
-      std::map<std::string, int> landmark_counts;
-
-      for (const auto &measurement : z_t)
+      if (!z_t.empty())
       {
-        // Find the landmark closest to the measurement
-        double min_distance = std::numeric_limits<double>::max();
-        std::string closest_landmark;
-        for (const auto &landmark : landmarks)
+        // Define a map to keep track of the number of times each landmark was chosen
+        std::map<std::string, int> landmark_counts;
+
+        for (const auto &measurement : z_t)
         {
-          double dx = measurement.first - landmark.second.x;
-          double dy = measurement.second - landmark.second.y;
-          double distance = sqrt(dx * dx + dy * dy);
-          if (distance < min_distance)
+          // Find the landmark closest to the measurement
+          double min_distance = std::numeric_limits<double>::max();
+          std::string closest_landmark;
+          for (const auto &landmark : landmarks)
           {
-            min_distance = distance;
-            closest_landmark = landmark.first;
+            double dx = measurement.first - landmark.second.landX;
+            double dy = measurement.second - landmark.second.landY;
+            double distance = sqrt(dx * dx + dy * dy);
+            if (distance < min_distance)
+            {
+              min_distance = distance;
+              closest_landmark = landmark.first;
+            }
           }
+
+          // Add the closest landmark to c_t
+          c_t.push_back(closest_landmark);
+
+          // Increment the counter for the closest landmark
+          ++landmark_counts[closest_landmark];
+
+          // Print the correspondence
+          // std::cout << "Measurement: (" << measurement.first << ", " << measurement.second << ") -> Landmark: " << closest_landmark << std::endl;
         }
 
-        // Add the closest landmark to c_t
-        c_t.push_back(closest_landmark);
+        // Print the number of times each landmark was chosen
+        for (const auto &landmark_count : landmark_counts)
+        {
+          std::cout << "Landmark: " << landmark_count.first << " -> Count: " << landmark_count.second << std::endl;
+        }
 
-        // Increment the counter for the closest landmark
-        ++landmark_counts[closest_landmark];
-
-        // Print the correspondence
-        std::cout << "Measurement: (" << measurement.first << ", " << measurement.second << ") -> Landmark: " << closest_landmark << std::endl;
+        // Call the correct method with z_t and c_t as arguments
+        ekf.correct(z_t, c_t);
+        std::cout << "\n\r############## After correction ##############" << std::endl;
+        ekf.printCov();
       }
-
-      // Print the number of times each landmark was chosen
-      for (const auto &landmark_count : landmark_counts)
-      {
-        std::cout << "Landmark: " << landmark_count.first << " -> Count: " << landmark_count.second << std::endl;
-      }
-
-      // Call the correct method with z_t and c_t as arguments
-      ekf.correct(z_t, c_t);
-
-      std::cout << "\n\rAfter correction: " << std::endl;
-      ekf.printCov();
     }
 
-    if (ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
+    if (ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED){
       // ROS_INFO("Hooray, the base moved to point %d", i+1);
       std::cout << "\n\rHooray, the base moved to point " << i + 1 << std::endl;
-    else
+      std::cout << "\n\r------------------------------------------------------------------------------------------------------" << std::endl;
+   } else
       // ROS_INFO("The base failed to move to point %d for some reason", i+1);
       std::cout << "\n\rThe base failed to move to point " << i + 1 << "for some reason" << std::endl;
-
-    ros::spinOnce();
   }
 
   return 0;
