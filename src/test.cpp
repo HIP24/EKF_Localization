@@ -95,20 +95,10 @@ struct Landmark
 
 // Create a map to hold all the landmarks
 std::map<std::string, Landmark> landmarks = {
-    {"one_one", {-0.95, -1.1}},
-    {"one_two", {-0.95, 0}},
-    {"one_three", {-0.95, 1.1}},
-    {"two_one", {0.15, -1.1}},
-    {"two_two", {0.15, 0}},
-    {"two_three", {0.15, 1.1}},
-    {"three_one", {1.25, -1.1}},
-    {"three_two", {1.25, 0}},
-    {"three_three", {1.25, 1.1}},
-    {"head", {2.3, 0}},
-    {"left_hand", {1.5, 2}},
-    {"right_hand", {1.5, -2}},
-    {"left_foot", {-1.5, 2}},
-    {"right_foot", {-1.5, -2}}};
+    {"head", {2, 0}},
+    {"left_wall", {0, 2.4}},
+    {"right_wall", {0, -2.4}},
+    {"bottom", {-2.5, 0}}};
 
 class EKF_Loc
 {
@@ -248,7 +238,8 @@ int main(int argc, char **argv)
   }
 
   // Define an array of 4 points
-  double points[4][2] = {{1.5, 0}, {-4, 0}, {1.5, -2}, {1, 2}};
+  //double points[4][2] = {{1.5, 0}, {-4, 0}, {1.5, -2}, {1, 2}};
+  double points[4][2] = {{-3, -0.5}, {2.5, -2}, {2.0, 2.0}, {-2.0, 2.0}};
   // (0.5 | 0.5) -> (2 | 0.5) -> (-2 | 0.5) -> (-0.5 | -1.5) -> (0.5 | 0.5)
 
   for (int i = 0; i < 4; i++)
@@ -283,7 +274,7 @@ int main(int argc, char **argv)
     
     tf2_ros::Buffer tfBuffer;
     tf2_ros::TransformListener tfListener(tfBuffer);
-    
+
     geometry_msgs::TransformStamped transformStamped;
     try {
       if (tfBuffer.canTransform("map", "base_link", ros::Time(0), ros::Duration(3.0))) {
@@ -296,10 +287,10 @@ int main(int argc, char **argv)
       ros::Duration(1.0).sleep();
       // continue processing...
     }
-    
+
     double robot_x = transformStamped.transform.translation.x;
     double robot_y = transformStamped.transform.translation.y;
-    
+
     std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl;
 
     // prediction
@@ -332,32 +323,32 @@ int main(int argc, char **argv)
         // Define a map to keep track of the number of times each landmark was chosen
         std::map<std::string, int> landmark_counts;
 
-        for (const auto &measurement : z_t)
+      for (const auto &measurement : z_t)
+      {
+        // Find the landmark closest to the measurement
+        double min_distance = std::numeric_limits<double>::max();
+        std::string closest_landmark;
+        for (const auto &landmark : landmarks)
         {
-          // Find the landmark closest to the measurement
-          double min_distance = std::numeric_limits<double>::max();
-          std::string closest_landmark;
-          for (const auto &landmark : landmarks)
+          double dx = measurement.first - landmark.second.landX;
+          double dy = measurement.second - landmark.second.landY;
+          double distance = sqrt(dx * dx + dy * dy);
+          if (distance < min_distance)
           {
-            double dx = measurement.first - landmark.second.landX;
-            double dy = measurement.second - landmark.second.landY;
-            double distance = sqrt(dx * dx + dy * dy);
-            if (distance < min_distance)
-            {
-              min_distance = distance;
-              closest_landmark = landmark.first;
-            }
+            min_distance = distance;
+            closest_landmark = landmark.first;
           }
-
-          // Add the closest landmark to c_t
-          c_t.push_back(closest_landmark);
-
-          // Increment the counter for the closest landmark
-          ++landmark_counts[closest_landmark];
-
-          // Print the correspondence
-          // std::cout << "Measurement: (" << measurement.first << ", " << measurement.second << ") -> Landmark: " << closest_landmark << std::endl;
         }
+      
+        // Add the closest landmark to c_t
+        c_t.push_back(closest_landmark);
+      
+        // Increment the counter for the closest landmark
+        ++landmark_counts[closest_landmark];
+      
+        // Print the correspondence
+        //std::cout << "Measurement: (" << measurement.first << ", " << measurement.second << ") -> Landmark: " << closest_landmark << ", Distance: " << min_distance << std::endl;
+      }
 
         // Print the number of times each landmark was chosen
         for (const auto &landmark_count : landmark_counts)
