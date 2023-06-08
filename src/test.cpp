@@ -97,7 +97,7 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
     // Update the robot's x and y coordinates
     robot_x = msg->pose.pose.position.x;
     robot_y = msg->pose.pose.position.y;
-
+    std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl; 
 }
 
 // scan callback function
@@ -290,34 +290,19 @@ int main(int argc, char **argv)
   }
 
   // Define an array of 4 points
-  double points[4][2] = {{1.5, 0}, {-4, 0}, {1.5, -2}, {1, 2}};
+  double points[4][2] = {{2, 0.5}, {-2, 0.5}, {2, 0.5}, {-2, 0.5}};
   //double points[4][2] = {{1.5, 0}, {-4, 0}, {4, 0}, {-4, 0}};
   // (0.5 | 0.5) -> (2 | 0.5) -> (-2 | 0.5) -> (-0.5 | -1.5) -> (0.5 | 0.5)
 
   for (int i = 0; i < 4; i++)
   {
     move_base_msgs::MoveBaseGoal goal;
-    goal.target_pose.header.frame_id = "base_link";
+    goal.target_pose.header.frame_id = "map";
     goal.target_pose.header.stamp = ros::Time::now();
 
     goal.target_pose.pose.position.x = points[i][0];
     goal.target_pose.pose.position.y = points[i][1];
     goal.target_pose.pose.orientation.w = 1;
-
-    tf2_ros::Buffer tfBuffer;
-    tf2_ros::TransformListener tfListener(tfBuffer);
-    geometry_msgs::TransformStamped transformStamped;
-    try {
-      if (tfBuffer.canTransform("map", "base_link", ros::Time(0), ros::Duration(3.0))) {
-        transformStamped = tfBuffer.lookupTransform("map", "base_link", ros::Time(0));
-      } else {
-        ROS_WARN("Transformation not possible");
-      }
-    } catch (tf2::TransformException &ex) {
-      ROS_WARN("%s", ex.what());
-      ros::Duration(1.0).sleep();
-      // continue processing...
-    }
 
     // ROS_INFO("Sending goal %d", i+1);
     std::cout << "\r\n\r\n\r\n";
@@ -333,8 +318,7 @@ int main(int argc, char **argv)
     std::cout << "scanCallback was called " << scanPrintCount << " times." << std::endl;
     scanPrintCount = 0;
     
-    double robot_x = transformStamped.transform.translation.x;
-    double robot_y = transformStamped.transform.translation.y;
+    
 
     std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl;
 
