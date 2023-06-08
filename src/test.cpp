@@ -34,10 +34,11 @@ struct Landmark
 
 // Create a map to hold all the landmarks
 std::map<std::string, Landmark> landmarks = {
+    {"bottom", {-2.5, 0}},
     {"head", {2, 0}},
     {"left_wall", {0, 2.4}},
-    {"right_wall", {0, -2.4}},
-    {"bottom", {-2.5, 0}}};
+    {"right_wall", {0, -2.4}}
+    };
 
 class EKF_Loc
 {
@@ -143,7 +144,7 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
         // Calculate the vector Δ as the difference between the landmark position and the robot position
         Eigen::Vector2d delta;
         delta << landmarks[j].landX - mt(0), landmarks[j].landY - mt(1);
-
+        
         // Calculate the variable q as the squared magnitude of Δ
         double q = delta.squaredNorm();
 
@@ -170,10 +171,10 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
     }
   }
 
-  void printCov()
+  void printMtCov()
   {
-    std::cout << "Cov: " << std::endl
-              << cov << std::endl;
+    std::cout << "Cov: " << std::endl << cov << std::endl;
+    std::cout << "Pose -> x = " << mt(0) << ", y = " << mt(1) << std::endl;
   }
 
 
@@ -209,7 +210,7 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
     ekf.setMt(newMt);
     ekf.setCov(newCov);
     std::cout << "\n\r############## After prediction ##############" << std::endl;
-    ekf.printCov();
+    ekf.printMtCov();
 
     // correction
     if (ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
@@ -219,8 +220,7 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
       std::vector<std::string> c_t;
 
       // Print the size of z_t
-      std::cout << "\r\nz_t size: " << z_t.size() << "\r\n"
-                << std::endl;
+      std::cout << "\r\nz_t size: " << z_t.size() << "\r\n" << std::endl;
 
       if (!z_t.empty())
       {
@@ -263,7 +263,7 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
         // Call the correct method with z_t and c_t as arguments
         ekf.correct(z_t, c_t);
         std::cout << "\n\r############## After correction ##############" << std::endl;
-        ekf.printCov();
+        ekf.printMtCov();
       }
     }
   }
