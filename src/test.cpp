@@ -97,7 +97,7 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
     // Update the robot's x and y coordinates
     robot_x = msg->pose.pose.position.x;
     robot_y = msg->pose.pose.position.y;
-    std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl; 
+    //std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl;
 }
 
 // scan callback function
@@ -273,43 +273,59 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
 
 int main(int argc, char **argv)
 {
-  ros::init(argc, argv, "map_navigation");
-  ros::NodeHandle nodeHandle;
+ros::init(argc, argv, "map_navigation");
+ros::NodeHandle nodeHandle;
 
-  EKF_Loc ekf;
-  MoveBaseClient ac("move_base", true);
+EKF_Loc ekf;
+MoveBaseClient ac("move_base", true);
 
-  ros::Subscriber odom_sub = nodeHandle.subscribe<nav_msgs::Odometry>("/odom", 3000, std::bind(&EKF_Loc::odomCallback, &ekf, std::placeholders::_1));
-  ros::Subscriber scan_sub = nodeHandle.subscribe<sensor_msgs::LaserScan>("/scan", 500, std::bind(&EKF_Loc::scanCallback, &ekf, std::placeholders::_1));
-  
+ros::Subscriber odom_sub = nodeHandle.subscribe<nav_msgs::Odometry>("/odom", 3000, std::bind(&EKF_Loc::odomCallback, &ekf, std::placeholders::_1));
+ros::Subscriber scan_sub = nodeHandle.subscribe<sensor_msgs::LaserScan>("/scan", 500, std::bind(&EKF_Loc::scanCallback, &ekf, std::placeholders::_1));
 
-  while (!ac.waitForServer(ros::Duration(5.0)))
-  {
-    // ROS_INFO("Waiting for the move_base action server to come up");
-    std::cout << "Waiting for the move_base action server to come up" << std::endl;
-  }
+while (!ac.waitForServer(ros::Duration(5.0)))
+{
+  std::cout << "Waiting for the move_base action server to come up" << std::endl;
+}
 
-  // Define an array of 4 points
-  //double points[4][2] = {{2, 0.5}, {-2, 0.5}, {2, 0.5}, {-2, 0.5}};
-  double points[4][2] = {{0, 2}, {2, 0}, {0, -2}, {-2, 0}};
-  // (0.5 | 0.5) -> (2 | 0.5) -> (-2 | 0.5) -> (-0.5 | -1.5) -> (0.5 | 0.5)
+double points[4][2];
 
-  for (int i = 0; i < 4; i++)
-  {
-    move_base_msgs::MoveBaseGoal goal;
-    goal.target_pose.header.frame_id = "map";
-    goal.target_pose.header.stamp = ros::Time::now();
+// Retrieve the points from ROS parameters
+XmlRpc::XmlRpcValue point1, point2, point3, point4;
+if (nodeHandle.getParam("point1", point1) &&
+    nodeHandle.getParam("point2", point2) &&
+    nodeHandle.getParam("point3", point3) &&
+    nodeHandle.getParam("point4", point4))
+{
+  points[0][0] = static_cast<double>(point1["x"]);
+  points[0][1] = static_cast<double>(point1["y"]);
+  points[1][0] = static_cast<double>(point2["x"]);
+  points[1][1] = static_cast<double>(point2["y"]);
+  points[2][0] = static_cast<double>(point3["x"]);
+  points[2][1] = static_cast<double>(point3["y"]);
+  points[3][0] = static_cast<double>(point4["x"]);
+  points[3][1] = static_cast<double>(point4["y"]);
+}
+else
+{
+  // Handle the case when the parameters are not found or have incorrect types
+  // ...
+}
 
-    goal.target_pose.pose.position.x = points[i][0];
-    goal.target_pose.pose.position.y = points[i][1];
-    goal.target_pose.pose.orientation.w = 1;
+for (int i = 0; i < 4; i++)
+{
+  move_base_msgs::MoveBaseGoal goal;
+  goal.target_pose.header.frame_id = "map";
+  goal.target_pose.header.stamp = ros::Time::now();
 
-    // ROS_INFO("Sending goal %d", i+1);
-    std::cout << "\r\n\r\n\r\n";
-    std::cout << "Sending goal " << i + 1 << std::endl;
-    ac.sendGoal(goal);
-    ac.waitForResult();
-    ros::spinOnce();
+  goal.target_pose.pose.position.x = points[i][0];
+  goal.target_pose.pose.position.y = points[i][1];
+  goal.target_pose.pose.orientation.w = 1;
+
+  std::cout << "\r\n\r\n\r\n";
+  std::cout << "Sending goal " << i + 1 << std::endl;
+  ac.sendGoal(goal);
+  ac.waitForResult();
+  ros::spinOnce();
 
     // Print the counts
     std::cout << std::endl;

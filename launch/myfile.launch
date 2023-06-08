@@ -38,6 +38,12 @@
         <param name="DWAPlannerROS/min_vel_x" value="0.0" if="$(arg move_forward_only)" />
     </node>
 
+    <!-- Define a sequence of four points, will be included as ROS parameters and published as goals by the test node-->
+    <param name="point1" type="yaml" value="{x: 0.0, y: 2.0}" />
+    <param name="point2" type="yaml" value="{x: 2.0, y: 0.0}" />
+    <param name="point3" type="yaml" value="{x: 0.0, y: -2.0}" />
+    <param name="point4" type="yaml" value="{x: -2.0, y: 0.0}" />
+
     <!-- Start test node -->
     <node pkg="my_cool_project" type="test" name="test_node" output="screen" />
 </launch>
