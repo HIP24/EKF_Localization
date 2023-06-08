@@ -290,8 +290,8 @@ int main(int argc, char **argv)
   }
 
   // Define an array of 4 points
-  double points[4][2] = {{2, 0.5}, {-2, 0.5}, {2, 0.5}, {-2, 0.5}};
-  //double points[4][2] = {{1.5, 0}, {-4, 0}, {4, 0}, {-4, 0}};
+  //double points[4][2] = {{2, 0.5}, {-2, 0.5}, {2, 0.5}, {-2, 0.5}};
+  double points[4][2] = {{0, 2}, {2, 0}, {0, -2}, {-2, 0}};
   // (0.5 | 0.5) -> (2 | 0.5) -> (-2 | 0.5) -> (-0.5 | -1.5) -> (0.5 | 0.5)
 
   for (int i = 0; i < 4; i++)
@@ -317,11 +317,9 @@ int main(int argc, char **argv)
     odomPrintCount = 0;
     std::cout << "scanCallback was called " << scanPrintCount << " times." << std::endl;
     scanPrintCount = 0;
-    
-    
-
     std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl;
 
+    // Do EKF_Localization with landmarks
     ekf.poseEstimation(ekf, ac);
 
     if (ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED){
