@@ -16,75 +16,14 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
-// Global variable to hold the control input
-Eigen::Vector2d u_t;
-
-// Global variable to hold the sensor measurements
-std::vector<std::pair<double, double>> z_t; // Each pair is <range, angle>
 
 typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
-
-// Global variables to keep track of whether a message has been printed in the callback functions
-//bool odomCallbackPrinted = true;
-//bool scanCallbackPrinted = true;
 
 // Define counters
 int odomPrintCount = 0;
 int scanPrintCount = 0;
-
-
 double robot_x, robot_y;
 
-// odom callback function
-void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
-{
-  //if (!odomCallbackPrinted)
-  //{
-    // ROS_INFO("Received odom: (%f, %f, %f)", msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
-    //std::cout << "Received odom: (" << msg->pose.pose.position.x << ", " << msg->pose.pose.position.y << ", " << msg->pose.pose.position.z << ")" << std::endl;
-    //std::cout << "First Odom: " << *msg << std::endl;
-    ++odomPrintCount;
-    //odomCallbackPrinted = true;
-
-    double v = msg->twist.twist.linear.x;  // Forward velocity
-    double w = msg->twist.twist.angular.z; // Rotational velocity
-    u_t << v, w;
-
-
-    // Update the robot's x and y coordinates
-    robot_x = msg->pose.pose.position.x;
-    robot_y = msg->pose.pose.position.y;
-  //}
-}
-
-// scan callback function
-void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
-{
-
-  //if (!scanCallbackPrinted)
-  //{
-    // ROS_INFO("Received scan: ranges size: %zu", msg->ranges.size());
-    //std::cout << "Received scan: ranges size: " << msg->ranges.size() << std::endl;
-    ++scanPrintCount;
-    //scanCallbackPrinted = true;
-  //}
-
-  z_t.clear();
-  double current_angle = msg->angle_min;
-
-  for (const auto &range : msg->ranges)
-  {
-    // if range is valid
-    if (range > msg->range_min && range < msg->range_max)
-    {
-      // Convert polar coordinates to Cartesian coordinates
-      double x = range * cos(current_angle);
-      double y = range * sin(current_angle);
-      z_t.emplace_back(x, y);
-    }
-    current_angle += msg->angle_increment;
-  }
-}
 
 // Create a struct to hold the x and y coordinates of each landmark
 struct Landmark
@@ -103,6 +42,10 @@ std::map<std::string, Landmark> landmarks = {
 class EKF_Loc
 {
 private:
+  // Global variable to hold the control input
+  Eigen::Vector2d u_t;
+  // Global variable to hold the sensor measurements
+  std::vector<std::pair<double, double>> z_t; // Each pair is <range, angle>
   Eigen::Vector2d mt;
   Eigen::Matrix2d cov;
 
@@ -142,17 +85,49 @@ public:
     Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
   }
 
+// odom callback function
+void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
+{   //std::cout << "odomPrintCount: " << odomPrintCount << std::endl;
+    //std::cout << "Received odom: (" << *msg << ")" << std::endl;
+    ++odomPrintCount;
+    double v = msg->twist.twist.linear.x;  // Forward velocity
+    double w = msg->twist.twist.angular.z; // Rotational velocity
+    u_t << v, w;
+
+    // Update the robot's x and y coordinates
+    robot_x = msg->pose.pose.position.x;
+    robot_y = msg->pose.pose.position.y;
+
+}
+
+// scan callback function
+void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
+{
+  //std::cout << "scanPrintCount: " << scanPrintCount << std::endl;
+  //std::cout << "Received scan: ranges size: " << *msg << std::endl;
+  ++scanPrintCount;
+  z_t.clear();
+  double current_angle = msg->angle_min;
+
+  for (const auto &range : msg->ranges)
+  {
+    // if range is valid
+    if (range > msg->range_min && range < msg->range_max)
+    {
+      // Convert polar coordinates to Cartesian coordinates
+      double x = range * cos(current_angle);
+      double y = range * sin(current_angle);
+      z_t.emplace_back(x, y);
+    }
+    current_angle += msg->angle_increment;
+  }
+}
+
   std::pair<Eigen::Vector2d, Eigen::Matrix2d> predict(const Eigen::Vector2d &ut, const Eigen::Vector2d &mt_prev, const Eigen::Matrix2d &cov_prev)
   {
     Eigen::Vector2d mt = A * mt_prev + B * ut;              // prediction
     Eigen::Matrix2d cov = A * cov_prev * A.transpose() + R; // update error covariance
     return std::make_pair(mt, cov);
-  }
-
-  void printCov()
-  {
-    std::cout << "Cov: " << std::endl
-              << cov << std::endl;
   }
 
   void correct(const std::vector<std::pair<double, double>> &z_t, const std::vector<std::string> &c_t)
@@ -195,6 +170,13 @@ public:
     }
   }
 
+  void printCov()
+  {
+    std::cout << "Cov: " << std::endl
+              << cov << std::endl;
+  }
+
+
   // Getter methods
   Eigen::Vector2d getMt() const
   {
@@ -216,84 +198,11 @@ public:
   {
     cov = newCov;
   }
-};
-
-int main(int argc, char **argv)
-{
-  ros::init(argc, argv, "map_navigation");
-  ros::NodeHandle nodeHandle;
-
-  // Subscribers
-  ros::Subscriber odom_sub = nodeHandle.subscribe("/odom", 1000, odomCallback);
-  ros::Subscriber scan_sub = nodeHandle.subscribe("/scan", 1000, scanCallback);
-
-  EKF_Loc ekf;
-
-  MoveBaseClient ac("move_base", true);
-
-  while (!ac.waitForServer(ros::Duration(5.0)))
-  {
-    // ROS_INFO("Waiting for the move_base action server to come up");
-    std::cout << "Waiting for the move_base action server to come up" << std::endl;
-  }
-
-  // Define an array of 4 points
-  //double points[4][2] = {{1.5, 0}, {-4, 0}, {1.5, -2}, {1, 2}};
-  double points[4][2] = {{-3, -0.5}, {2.5, -2}, {2.0, 2.0}, {-2.0, 2.0}};
-  // (0.5 | 0.5) -> (2 | 0.5) -> (-2 | 0.5) -> (-0.5 | -1.5) -> (0.5 | 0.5)
-
-  for (int i = 0; i < 4; i++)
-  {
 
 
-    move_base_msgs::MoveBaseGoal goal;
-    goal.target_pose.header.frame_id = "base_link";
-    goal.target_pose.header.stamp = ros::Time::now();
 
-    goal.target_pose.pose.position.x = points[i][0];
-    goal.target_pose.pose.position.y = points[i][1];
-    goal.target_pose.pose.orientation.w = 1;
-
-    // ROS_INFO("Sending goal %d", i+1);
-    std::cout << "\r\n\r\n\r\n";
-    std::cout << "Sending goal " << i + 1 << std::endl;
-    //std::cout << "----------------------------------------------------------------Entering sendGoal" << std::endl;
-    ac.sendGoal(goal);
-    //std::cout << "----------------------------------------------------------------Exiting sendGoal" << std::endl;
-
-    //std::cout << "----------------------------------------------------------------Entering waitForResult" << std::endl;
-    ac.waitForResult();
-    //std::cout << "----------------------------------------------------------------Exiting waitForResult" << std::endl;
-
-    //std::cout << "----------------------------------------------------------------Entering spinOnce" << std::endl;
-    // Reset the printed variable in the callback functions
-    //odomCallbackPrinted = false;
-    //scanCallbackPrinted = false;
-    ros::spinOnce();
-    //std::cout << "----------------------------------------------------------------Exiting spinOnce" << std::endl;
-    
-    tf2_ros::Buffer tfBuffer;
-    tf2_ros::TransformListener tfListener(tfBuffer);
-
-    geometry_msgs::TransformStamped transformStamped;
-    try {
-      if (tfBuffer.canTransform("map", "base_link", ros::Time(0), ros::Duration(3.0))) {
-        transformStamped = tfBuffer.lookupTransform("map", "base_link", ros::Time(0));
-      } else {
-        ROS_WARN("Transformation not possible");
-      }
-    } catch (tf2::TransformException &ex) {
-      ROS_WARN("%s", ex.what());
-      ros::Duration(1.0).sleep();
-      // continue processing...
-    }
-
-    double robot_x = transformStamped.transform.translation.x;
-    double robot_y = transformStamped.transform.translation.y;
-
-    std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl;
-
-    // prediction
+  void poseEstimation(EKF_Loc &ekf, MoveBaseClient &ac){
+     // prediction
     Eigen::Vector2d newMt;
     Eigen::Matrix2d newCov;
     std::tie(newMt, newCov) = ekf.predict(u_t, ekf.getMt(), ekf.getCov());
@@ -308,12 +217,7 @@ int main(int argc, char **argv)
 
       // Define a vector of correspondence variables
       std::vector<std::string> c_t;
-      // Print the counts
-      std::cout << std::endl;
-      std::cout << "odomCallback was called " << odomPrintCount << " times." << std::endl;
-      odomPrintCount = 0;
-      std::cout << "scanCallback was called " << scanPrintCount << " times." << std::endl;
-      scanPrintCount = 0;
+
       // Print the size of z_t
       std::cout << "\r\nz_t size: " << z_t.size() << "\r\n"
                 << std::endl;
@@ -362,6 +266,79 @@ int main(int argc, char **argv)
         ekf.printCov();
       }
     }
+  }
+
+
+};
+
+int main(int argc, char **argv)
+{
+  ros::init(argc, argv, "map_navigation");
+  ros::NodeHandle nodeHandle;
+
+  EKF_Loc ekf;
+  MoveBaseClient ac("move_base", true);
+
+  ros::Subscriber odom_sub = nodeHandle.subscribe<nav_msgs::Odometry>("/odom", 3000, std::bind(&EKF_Loc::odomCallback, &ekf, std::placeholders::_1));
+  ros::Subscriber scan_sub = nodeHandle.subscribe<sensor_msgs::LaserScan>("/scan", 500, std::bind(&EKF_Loc::scanCallback, &ekf, std::placeholders::_1));
+  
+
+  while (!ac.waitForServer(ros::Duration(5.0)))
+  {
+    // ROS_INFO("Waiting for the move_base action server to come up");
+    std::cout << "Waiting for the move_base action server to come up" << std::endl;
+  }
+
+  // Define an array of 4 points
+  double points[4][2] = {{1.5, 0}, {-4, 0}, {1.5, -2}, {1, 2}};
+  //double points[4][2] = {{1.5, 0}, {-4, 0}, {4, 0}, {-4, 0}};
+  // (0.5 | 0.5) -> (2 | 0.5) -> (-2 | 0.5) -> (-0.5 | -1.5) -> (0.5 | 0.5)
+
+  for (int i = 0; i < 4; i++)
+  {
+    move_base_msgs::MoveBaseGoal goal;
+    goal.target_pose.header.frame_id = "base_link";
+    goal.target_pose.header.stamp = ros::Time::now();
+
+    goal.target_pose.pose.position.x = points[i][0];
+    goal.target_pose.pose.position.y = points[i][1];
+    goal.target_pose.pose.orientation.w = 1;
+
+    tf2_ros::Buffer tfBuffer;
+    tf2_ros::TransformListener tfListener(tfBuffer);
+    geometry_msgs::TransformStamped transformStamped;
+    try {
+      if (tfBuffer.canTransform("map", "base_link", ros::Time(0), ros::Duration(3.0))) {
+        transformStamped = tfBuffer.lookupTransform("map", "base_link", ros::Time(0));
+      } else {
+        ROS_WARN("Transformation not possible");
+      }
+    } catch (tf2::TransformException &ex) {
+      ROS_WARN("%s", ex.what());
+      ros::Duration(1.0).sleep();
+      // continue processing...
+    }
+
+    // ROS_INFO("Sending goal %d", i+1);
+    std::cout << "\r\n\r\n\r\n";
+    std::cout << "Sending goal " << i + 1 << std::endl;
+    ac.sendGoal(goal);
+    ac.waitForResult();
+    ros::spinOnce();
+
+    // Print the counts
+    std::cout << std::endl;
+    std::cout << "odomCallback was called " << odomPrintCount << " times." << std::endl;
+    odomPrintCount = 0;
+    std::cout << "scanCallback was called " << scanPrintCount << " times." << std::endl;
+    scanPrintCount = 0;
+    
+    double robot_x = transformStamped.transform.translation.x;
+    double robot_y = transformStamped.transform.translation.y;
+
+    std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl;
+
+    ekf.poseEstimation(ekf, ac);
 
     if (ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED){
       // ROS_INFO("Hooray, the base moved to point %d", i+1);
@@ -369,7 +346,7 @@ int main(int argc, char **argv)
       std::cout << "\n\r------------------------------------------------------------------------------------------------------" << std::endl;
    } else
       // ROS_INFO("The base failed to move to point %d for some reason", i+1);
-      std::cout << "\n\rThe base failed to move to point " << i + 1 << "for some reason" << std::endl;
+      std::cout << "\n\rThe base failed to move to point " << i + 1 << " for some reason" << std::endl;
   }
 
   return 0;
