@@ -21,7 +21,8 @@ typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseCl
 // Define counters
 int odomPrintCount = 0;
 int scanPrintCount = 0;
-double robot_x, robot_y;
+int cmd_velPrintCount = 0;
+double robot_x, robot_y, robot_quat_z, robot_quat_w;
 
 // Create a struct to hold the x, y coordinates, and signature vector of each landmark
 struct Landmark
@@ -84,47 +85,72 @@ public:
     Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
   }
 
+
+
+  // imu callback function
+void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
+{
+    ++cmd_velPrintCount;
+    double v = commandMsg->linear.x;;  // Forward velocity
+    double w = commandMsg->angular.z;; // Rotational velocity
+    u_t << v, w;
+}
+
   // odom callback function
   void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
   { // std::cout << "odomPrintCount: " << odomPrintCount << std::endl;
     // std::cout << "Received odom: (" << *msg << ")" << std::endl;
     ++odomPrintCount;
-    double v = msg->twist.twist.linear.x;  // Forward velocity
-    double w = msg->twist.twist.angular.z; // Rotational velocity
-    u_t << v, w;
 
-//x * v cos
-//y * v sin
+  // Update the robot's x and y coordinates
+  robot_x = msg->pose.pose.position.x;
+  robot_y = msg->pose.pose.position.y;
 
-    // Update the robot's x and y coordinates
-    robot_x = msg->pose.pose.position.x;
-    robot_y = msg->pose.pose.position.y;
+  // Update the robot's orientation quaternion (z and w components)
+  //robot_quat_x = msg->pose.pose.orientation.x;
+  //robot_quat_y = msg->pose.pose.orientation.y;
+  robot_quat_z = msg->pose.pose.orientation.z;
+  robot_quat_w = msg->pose.pose.orientation.w;
     // std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl;
   }
 
   // scan callback function
   void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
   {
-    // std::cout << "scanPrintCount: " << scanPrintCount << std::endl;
-    // std::cout << "Received scan: ranges size: " << *msg << std::endl;
     ++scanPrintCount;
-    z_t.clear();
-    double current_angle = msg->angle_min;
+  z_t.clear();
+  double current_angle = msg->angle_min;
 
-    for (const auto &range : msg->ranges)
+  // Convert robot's orientation quaternion to yaw angle
+  tf2::Quaternion q;
+  q.setX(0);
+  q.setY(0);
+  q.setZ(robot_quat_z);
+  q.setW(robot_quat_w);
+  tf2::Matrix3x3 m(q);
+  double roll, pitch, yaw;
+  m.getRPY(roll, pitch, yaw);
+
+  for (const auto &range : msg->ranges)
+  {
+    // if range is valid
+    if (range > msg->range_min && range < msg->range_max)
     {
-      // if range is valid
-      if (range > msg->range_min && range < msg->range_max)
-      {
-        // Convert polar coordinates to Cartesian coordinates
-        double x = range * cos(current_angle);
-        double y = range * sin(current_angle);
-        z_t.emplace_back(x, y);
-      }
-      current_angle += msg->angle_increment;
+      // Convert polar coordinates to Cartesian coordinates
+      double x = range * cos(current_angle);
+      double y = range * sin(current_angle);
+
+      // Convert points from robot's frame to map frame using rotation matrix
+      double map_x = robot_x + cos(yaw)*x - sin(yaw)*y;
+      double map_y = robot_y + sin(yaw)*x + cos(yaw)*y;
+
+      z_t.emplace_back(map_x, map_y);
     }
+    current_angle += msg->angle_increment;
   }
 
+
+  }
   std::pair<Eigen::Vector2d, Eigen::Matrix2d> predict(const Eigen::Vector2d &ut, const Eigen::Vector2d &mt_prev, const Eigen::Matrix2d &cov_prev)
   {
     mt = A * mt_prev + B * ut;              // prediction
@@ -280,6 +306,7 @@ int main(int argc, char **argv)
 
   ros::Subscriber odom_sub = nodeHandle.subscribe<nav_msgs::Odometry>("/odom", 3000, std::bind(&EKF_Loc::odomCallback, &ekf, std::placeholders::_1));
   ros::Subscriber scan_sub = nodeHandle.subscribe<sensor_msgs::LaserScan>("/scan", 500, std::bind(&EKF_Loc::scanCallback, &ekf, std::placeholders::_1));
+  ros::Subscriber cmd_vel_sub = nodeHandle.subscribe<geometry_msgs::Twist>("/cmd_vel", 1000, std::bind(&EKF_Loc::cmd_velCallback, &ekf, std::placeholders::_1));
 
   while (!ac.waitForServer(ros::Duration(5.0)))
   {
@@ -328,6 +355,8 @@ int main(int argc, char **argv)
 
     // Print the counts
     std::cout << std::endl;
+     std::cout << "cmd_velCallback was called " << cmd_velPrintCount << " times." << std::endl;
+    cmd_velPrintCount = 0;
     std::cout << "odomCallback was called " << odomPrintCount << " times." << std::endl;
     odomPrintCount = 0;
     std::cout << "scanCallback was called " << scanPrintCount << " times." << std::endl;

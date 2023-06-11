@@ -4,7 +4,7 @@
     <include file="$(find gazebo_ros)launch/empty_world.launch" >
         <!--<arg name="world_name" value="$(find gazebo_ros)/worlds/empty.world" />-->
         <arg name="world_name" value="$(find my_cool_project)/maps/turtlebot3_world.world" />
-        <arg name="gui" value="true" />
+        <arg name="gui" value="false" />
         <arg name="use_sim_time" value="true" />
         <arg name="paused" value="false" />
     </include>
