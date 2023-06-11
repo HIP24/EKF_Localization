@@ -12,6 +12,8 @@
 #include <map>
 #include <string>
 
+#include <geometry_msgs/PoseStamped.h>
+
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -59,6 +61,9 @@ private:
   Eigen::Matrix2d C;
   Eigen::Matrix2d Q;
 
+  ros::Publisher posePub;
+  double roll, pitch, yaw;
+
 public:
   EKF_Loc()
   {
@@ -83,8 +88,12 @@ public:
     C << 1, 0,
         0, 1;
     Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
-  }
 
+    ros::NodeHandle nodeHandle;
+
+    posePub = nodeHandle.advertise<geometry_msgs::PoseStamped>("/ekf_pose", 10);
+
+  }
 
 
   // imu callback function
@@ -128,7 +137,6 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
   q.setZ(robot_quat_z);
   q.setW(robot_quat_w);
   tf2::Matrix3x3 m(q);
-  double roll, pitch, yaw;
   m.getRPY(roll, pitch, yaw);
 
   for (const auto &range : msg->ranges)
@@ -151,6 +159,7 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
 
 
   }
+
   std::pair<Eigen::Vector2d, Eigen::Matrix2d> predict(const Eigen::Vector2d &ut, const Eigen::Vector2d &mt_prev, const Eigen::Matrix2d &cov_prev)
   {
     mt = A * mt_prev + B * ut;              // prediction
@@ -278,7 +287,7 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
           ++landmark_counts[closest_landmark];
 
           // Print the correspondence
-          std::cout << "Measurement: (" << measurement.first << ", " << measurement.second << ") -> Landmark: " << closest_landmark << ", Distance: " << min_distance << std::endl;
+          //std::cout << "Measurement: (" << measurement.first << ", " << measurement.second << ") -> Landmark: " << closest_landmark << ", Distance: " << min_distance << std::endl;
         }
 
         // Print the number of times each landmark was chosen
@@ -291,10 +300,37 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
         ekf.correct(z_t, c_t);
         std::cout << "\n\r############## After correction ##############" << std::endl;
         ekf.printMtCov();
+        publishPose();
       }
     }
   }
+
+void publishPose()
+{
+  geometry_msgs::PoseStamped poseMsg;
+
+  // Set the frame ID and timestamp
+  poseMsg.header.frame_id = "map";
+  poseMsg.header.stamp = ros::Time::now();
+
+  // Set the pose data (replace mt(0) and mt(1) with your own data)
+  poseMsg.pose.position.x = mt(0);
+  poseMsg.pose.position.y = mt(1);
+  tf2::Quaternion quat;
+  quat.setRPY(0, 0, yaw); // replace 0.0 with the yaw of your robot
+  poseMsg.pose.orientation = tf2::toMsg(quat);
+
+
+  // Publish the pose
+  posePub.publish(poseMsg);
+}
+
+
 };
+
+
+
+
 
 int main(int argc, char **argv)
 {
