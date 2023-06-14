@@ -53,83 +53,48 @@ private:
   Eigen::MatrixXd B;
   Eigen::MatrixXd R;
 
-  double delta_t; // time step
-  double sigma;   // noise standard deviation
-
-  Eigen::MatrixXd C;
   Eigen::MatrixXd Q;
 
   ros::Publisher posePub;
   double roll, pitch, yaw;
   double theta = 0; 
+  double delta_t = 0.1; // time step
+  double sigma = 0.1;   // noise standard deviation
   double sigma_x = 0.1; 
   double sigma_y = 0.1; 
   double sigma_theta = 0.1;
   double sigma_v = 0.1; 
   double sigma_omega = 0.1;
+  
 
 public:
   EKF_Loc()
   {
-    delta_t = 0.1;
-    sigma = 0.1;
-
-    A.resize(5, 5);
-    // The first three rows represent the change in x, y, and theta due to the linear and angular velocities
-// The last two rows represent the change in v and omega due to the control inputs.
-//For example, the x coordinate at time t+1 is equal to the x coordinate at time t plus the change in x due to the linear velocity v, which is given by delta_t * cos(theta) * v.
-A << 1, 0, 0, delta_t * cos(theta), 0,
-     0, 1, 0, delta_t * sin(theta), 0,
-     0, 0, 1,         0,            delta_t,
-     0, 0, 0,         1,            0,
-     0, 0, 0,         0,            1;
-
-
-    B.resize(5, 2);
-///The rows of the B matrix correspond to the state variables in mt (5), and the columns of the B matrix correspond to the control inputs u (2).
-//first column represents the change in x, y, and theta due to linear velocity, 
-//second column represents the change in x, y, and theta due to angular velocity.
-//For example, the linear velocity v at time t+1 is equal to the linear velocity at time t plus the change in linear velocity due to the linear acceleration control input, which is given by delta_t * cos(theta) * linear_acceleration.
-B << 0.5 * pow(delta_t,2) * cos(theta), 0,
-     0.5 * pow(delta_t,2) * sin(theta), 0,
-                      0,                0.5 * pow(delta_t,2),
-              delta_t * cos(theta),     0,
-              delta_t * sin(theta),     delta_t;
-
-
-    R.resize(5, 5);
-R << pow(sigma_x, 2), 0, 0, 0, 0,
-     0, pow(sigma_y, 2), 0, 0, 0,
-     0, 0, pow(sigma_theta, 2), 0 ,0,
-     0 ,0 ,0 ,pow(sigma_v, 2) ,0,
-     0 ,0 ,0 ,0 ,pow(sigma_omega, 2);
-
-
-
+    // initialize with the initial pose [x, y, theta, v, omega]
     mt.resize(5);
-        // initialize with the initial pose [x, y, theta, v, omega]
     mt << 0.5, 0.5, 0, 0, 0; 
 
-
-
-    // Initialize cov using covariance information from /odom message
-    cov.resize(5, 5);
     // Initialize initial covariance
-cov << 1e-5, 0, 0, 0, 0,
-       0, 1e-5, 0, 0, 0,
-       0, 0, 1e-5, 0 ,0,
-       0 ,0 ,0 ,1e-5 ,0,
-       0 ,0 ,0 ,0 ,1e-5;
+    cov.resize(5, 5);
+    cov << 1e-5, 0, 0, 0, 0,
+           0, 1e-5, 0, 0, 0,
+           0, 0, 1e-5, 0 ,0,
+           0 ,0 ,0 ,1e-5 ,0,
+           0 ,0 ,0 ,0 ,1e-5;
 
-    //// Inside EKF_Loc constructor
-    C.resize(2, 5);
-  C << 1, 0, 0, 0, 0,
-       0, 1, 0, 0, 0;
-       
+    // initialize process noise
+    R.resize(5, 5);
+    R << pow(sigma_x, 2), 0, 0, 0, 0,
+         0, pow(sigma_y, 2), 0, 0, 0,
+         0, 0, pow(sigma_theta, 2), 0 ,0,
+         0 ,0 ,0 ,pow(sigma_v, 2) ,0,
+         0 ,0 ,0 ,0 ,pow(sigma_omega, 2);
+
+  // initialize measurement noise
     Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
 
+  // initialize nodeHandle for ekf_pose
     ros::NodeHandle nodeHandle;
-
     posePub = nodeHandle.advertise<geometry_msgs::PoseStamped>("/ekf_pose", 10);
 
   }
@@ -178,6 +143,9 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
   tf2::Matrix3x3 m(q);
   m.getRPY(roll, pitch, yaw);
 
+  // Update theta with the current yaw angle
+  theta = yaw;
+
   for (const auto &range : msg->ranges)
   {
     // if range is valid
@@ -201,6 +169,29 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
 
   std::pair<Eigen::VectorXd, Eigen::MatrixXd> predict(const Eigen::Vector2d &ut, const Eigen::VectorXd &mt_prev, const Eigen::MatrixXd &cov_prev)
   {
+    std::cout << "Theta:\r\n " << theta << std::endl;
+    std::cout << "v:\r\n " << u_t(0) << std::endl;
+    std::cout << "w:\r\n " << u_t(1) << std::endl;
+    std::cout << "A:\r\n " << A << std::endl;
+    std::cout << "B:\r\n " << B << std::endl;
+
+A.resize(5, 5);
+A << 1, 0, 0, delta_t * cos(theta) * u_t(0) - delta_t * sin(theta) * u_t(1), 0,
+     0, 1, 0, delta_t * sin(theta) * u_t(0) + delta_t * cos(theta) * u_t(1), 0,
+     0, 0, 1,         0,            delta_t,
+     0, 0, 0,         1,            0,
+     0, 0, 0,         0,            1;
+
+
+B.resize(5, 2);
+B << 0, 0,
+     0, 0,
+     0, 0,
+     0, 0,
+     0, delta_t;
+
+
+
     mt = A * mt_prev + B * ut;              // prediction
     cov = A * cov_prev * A.transpose() + R; // update error covariance
     return std::make_pair(mt, cov);
@@ -248,9 +239,10 @@ void correct(const std::vector<std::pair<double, double>> &z_t, const std::vecto
 
   void printMtCov()
   {
-    std::cout << "Cov: " << std::endl
-              << cov << std::endl;
-    std::cout << "Pose -> x = " << mt(0) << ", y = " << mt(1) << std::endl;
+    //std::cout << "Cov: " << std::endl << cov << std::endl;
+    //std::cout << "Pose -> x = " << mt(0) << ", y = " << mt(1) << ", theta = " << mt(2) << ", v = " << mt(3) << ", w = " << mt(4) << std::endl;
+      std::cout << "Robot's real position: (x = " << robot_x << ", y = " << robot_y << ")" << std::endl;
+      std::cout << "Robot's estimated position: (x = " << mt(0) << ", y = " << mt(1) << ")" << std::endl;
   }
 
   // Getter methods
@@ -291,8 +283,7 @@ void correct(const std::vector<std::pair<double, double>> &z_t, const std::vecto
       std::vector<std::string> c_t;
 
       // Print the size of z_t
-      std::cout << "\r\nz_t size: " << z_t.size() << "\r\n"
-                << std::endl;
+      std::cout << "\r\nz_t size: " << z_t.size() << "\r\n" << std::endl;
  
       if (!z_t.empty())
       {
@@ -329,7 +320,7 @@ void correct(const std::vector<std::pair<double, double>> &z_t, const std::vecto
         // Print the number of times each landmark was chosen
         for (const auto &landmark_count : landmark_counts)
         {
-          std::cout << "Landmark: " << landmark_count.first << " -> Count: " << landmark_count.second << std::endl;
+          //std::cout << "Landmark: " << landmark_count.first << " -> Count: " << landmark_count.second << std::endl;
         }
 
         // Call the correct method with z_t and c_t as arguments
