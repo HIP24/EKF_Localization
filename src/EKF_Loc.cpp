@@ -56,8 +56,8 @@ private:
   double delta_t; // time step
   double sigma;   // noise standard deviation
 
-  //Eigen::MatrixXd C;
-  //Eigen::MatrixXd Q;
+  Eigen::MatrixXd C;
+  Eigen::MatrixXd Q;
 
   ros::Publisher posePub;
   double roll, pitch, yaw;
@@ -122,12 +122,11 @@ cov << 1e-5, 0, 0, 0, 0,
        0 ,0 ,0 ,0 ,1e-5;
 
     //// Inside EKF_Loc constructor
-    //C.resize(2, 2);
-    //C << 1, 0,
-    //    0, 1;
-//
-    //Q.resize(2, 2);
-    //Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
+    C.resize(2, 5);
+  C << 1, 0, 0, 0, 0,
+       0, 1, 0, 0, 0;
+       
+    Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
 
     ros::NodeHandle nodeHandle;
 
@@ -206,47 +205,46 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
     cov = A * cov_prev * A.transpose() + R; // update error covariance
     return std::make_pair(mt, cov);
   }
-/*
-  void correct(const std::vector<std::pair<double, double>> &z_t, const std::vector<std::string> &c_t)
+
+void correct(const std::vector<std::pair<double, double>> &z_t, const std::vector<std::string> &c_t)
+{
+  if (!z_t.empty())
   {
-    if (!z_t.empty())
+    for (int i = 0; i < z_t.size(); ++i)
     {
+      // Determine the index of the landmark corresponding to the observed feature
+      std::string j = c_t[i];
 
-      for (int i = 0; i < z_t.size(); ++i)
-      {
-        // Determine the index of the landmark corresponding to the observed feature
-        std::string j = c_t[i];
+      // Calculate the vector Δ as the difference between the landmark position and the robot position
+      Eigen::Vector2d delta;
+      delta << landmarks[j].landX - mt(0), landmarks[j].landY - mt(1);
 
-        // Calculate the vector Δ as the difference between the landmark position and the robot position
-        Eigen::Vector2d delta;
-        delta << landmarks[j].landX - mt(0), landmarks[j].landY - mt(1);
+      // Calculate the variable q as the squared magnitude of Δ
+      double q = delta.squaredNorm();
 
-        // Calculate the variable q as the squared magnitude of Δ
-        double q = delta.squaredNorm();
+      // Calculate the expected measurement ^zit based on Δ and q
+      Eigen::Vector2d expected_z;
+      expected_z << sqrt(q), atan2(delta(1), delta(0));
 
-        // Calculate the expected measurement ^zit based on Δ and q
-        Eigen::Vector2d expected_z;
-        expected_z << sqrt(q), atan2(delta(1), delta(0));
+      // Calculate the Jacobian matrix Hit based on Δ and q
+      Eigen::Matrix<double, 2, 5> H;
+      H << -delta(0) / sqrt(q), -delta(1) / sqrt(q), 0, 0, 0,
+            delta(1) / q, -delta(0) / q, 0, 0, 0;
 
-        // Calculate the Jacobian matrix Hit based on Δ and q
-        Eigen::Matrix<double, 2, 2> H;
-        H << -delta(0) / sqrt(q), -delta(1) / sqrt(q),
-            delta(1) / q, -delta(0) / q;
+      // Calculate the Kalman gain Kit based on Hit, Qt, and Σt
+      Eigen::Matrix<double, 5, 2> K = cov * H.transpose() * (H * cov * H.transpose() + Q).inverse();
 
-        // Calculate the Kalman gain Kit based on Hit, Qt, and Σt
-        Eigen::Matrix2d K = cov * H.transpose() * (H * cov * H.transpose() + Q).inverse();
+      // Compute the innovation
+      Eigen::Vector2d z(z_t[i].first, z_t[i].second);
+      Eigen::Vector2d innovation = z - expected_z;
 
-        // Compute the innovation
-        Eigen::Vector2d z(z_t[i].first, z_t[i].second);
-        Eigen::Vector2d innovation = z - expected_z;
-
-        // Compute the posterior state
-        mt = mt + K * innovation;
-        cov = (Eigen::Matrix2d::Identity() - K * H) * cov;
-      }
+      // Compute the posterior state
+      mt = mt + K * innovation;
+      cov = (Eigen::MatrixXd::Identity(5, 5) - K * H) * cov;
     }
   }
-*/
+}
+
 
   void printMtCov()
   {
@@ -335,10 +333,10 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
         }
 
         // Call the correct method with z_t and c_t as arguments
-        //ekf.correct(z_t, c_t);
-        //std::cout << "\n\r############## After correction ##############" << std::endl;
-        //ekf.printMtCov();
-        //publishPose();
+        ekf.correct(z_t, c_t);
+        std::cout << "\n\r############## After correction ##############" << std::endl;
+        ekf.printMtCov();
+        publishPose();
       }
 
   }
@@ -351,7 +349,7 @@ void publishPose()
   poseMsg.header.frame_id = "map";
   poseMsg.header.stamp = ros::Time::now();
 
-  // Set the pose data (replace mt(0) and mt(1) with your own data)
+  // Set the pose data
   poseMsg.pose.position.x = mt(0);
   poseMsg.pose.position.y = mt(1);
   tf2::Quaternion quat;
