@@ -46,21 +46,27 @@ private:
   Eigen::Vector2d u_t;
   std::vector<std::pair<double, double>> z_t; // Each pair is <range, angle>
 
-  Eigen::Vector2d mt;
-  Eigen::Matrix2d cov;
+  Eigen::VectorXd mt;
+  Eigen::MatrixXd cov;
 
-  Eigen::Matrix2d A;
-  Eigen::Matrix2d B;
-  Eigen::Matrix2d R;
+  Eigen::MatrixXd A;
+  Eigen::MatrixXd B;
+  Eigen::MatrixXd R;
 
   double delta_t; // time step
   double sigma;   // noise standard deviation
 
-  Eigen::Matrix2d C;
-  Eigen::Matrix2d Q;
+  //Eigen::MatrixXd C;
+  //Eigen::MatrixXd Q;
 
   ros::Publisher posePub;
   double roll, pitch, yaw;
+  double theta = 0; 
+  double sigma_x = 0.1; 
+  double sigma_y = 0.1; 
+  double sigma_theta = 0.1;
+  double sigma_v = 0.1; 
+  double sigma_omega = 0.1;
 
 public:
   EKF_Loc()
@@ -68,24 +74,60 @@ public:
     delta_t = 0.1;
     sigma = 0.1;
 
-    A << 1, 0,
-        0, 1;
+    A.resize(5, 5);
+    // The first three rows represent the change in x, y, and theta due to the linear and angular velocities
+// The last two rows represent the change in v and omega due to the control inputs.
+//For example, the x coordinate at time t+1 is equal to the x coordinate at time t plus the change in x due to the linear velocity v, which is given by delta_t * cos(theta) * v.
+A << 1, 0, 0, delta_t * cos(theta), 0,
+     0, 1, 0, delta_t * sin(theta), 0,
+     0, 0, 1,         0,            delta_t,
+     0, 0, 0,         1,            0,
+     0, 0, 0,         0,            1;
 
-    B << delta_t, 0,
-        0, delta_t;
 
-    R = pow(sigma, 2) * Eigen::Matrix2d::Identity();
+    B.resize(5, 2);
+///The rows of the B matrix correspond to the state variables in mt (5), and the columns of the B matrix correspond to the control inputs u (2).
+//first column represents the change in x, y, and theta due to linear velocity, 
+//second column represents the change in x, y, and theta due to angular velocity.
+//For example, the linear velocity v at time t+1 is equal to the linear velocity at time t plus the change in linear velocity due to the linear acceleration control input, which is given by delta_t * cos(theta) * linear_acceleration.
+B << 0.5 * pow(delta_t,2) * cos(theta), 0,
+     0.5 * pow(delta_t,2) * sin(theta), 0,
+                      0,                0.5 * pow(delta_t,2),
+              delta_t * cos(theta),     0,
+              delta_t * sin(theta),     delta_t;
 
-    mt << 0.5, 0.5; // initialize with the initial pose
+
+    R.resize(5, 5);
+R << pow(sigma_x, 2), 0, 0, 0, 0,
+     0, pow(sigma_y, 2), 0, 0, 0,
+     0, 0, pow(sigma_theta, 2), 0 ,0,
+     0 ,0 ,0 ,pow(sigma_v, 2) ,0,
+     0 ,0 ,0 ,0 ,pow(sigma_omega, 2);
+
+
+
+    mt.resize(5);
+        // initialize with the initial pose [x, y, theta, v, omega]
+    mt << 0.5, 0.5, 0, 0, 0; 
+
+
 
     // Initialize cov using covariance information from /odom message
-    cov << 1e-05, 0,
-        0, 1e-05;
+    cov.resize(5, 5);
+    // Initialize initial covariance
+cov << 1e-5, 0, 0, 0, 0,
+       0, 1e-5, 0, 0, 0,
+       0, 0, 1e-5, 0 ,0,
+       0 ,0 ,0 ,1e-5 ,0,
+       0 ,0 ,0 ,0 ,1e-5;
 
-    // Inside EKF_Loc constructor
-    C << 1, 0,
-        0, 1;
-    Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
+    //// Inside EKF_Loc constructor
+    //C.resize(2, 2);
+    //C << 1, 0,
+    //    0, 1;
+//
+    //Q.resize(2, 2);
+    //Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
 
     ros::NodeHandle nodeHandle;
 
@@ -158,13 +200,13 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
 
   }
 
-  std::pair<Eigen::Vector2d, Eigen::Matrix2d> predict(const Eigen::Vector2d &ut, const Eigen::Vector2d &mt_prev, const Eigen::Matrix2d &cov_prev)
+  std::pair<Eigen::VectorXd, Eigen::MatrixXd> predict(const Eigen::Vector2d &ut, const Eigen::VectorXd &mt_prev, const Eigen::MatrixXd &cov_prev)
   {
     mt = A * mt_prev + B * ut;              // prediction
     cov = A * cov_prev * A.transpose() + R; // update error covariance
     return std::make_pair(mt, cov);
   }
-
+/*
   void correct(const std::vector<std::pair<double, double>> &z_t, const std::vector<std::string> &c_t)
   {
     if (!z_t.empty())
@@ -204,6 +246,7 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
       }
     }
   }
+*/
 
   void printMtCov()
   {
@@ -213,23 +256,23 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
   }
 
   // Getter methods
-  Eigen::Vector2d getMt() const
+  Eigen::VectorXd getMt() const
   {
     return mt;
   }
 
-  Eigen::Matrix2d getCov() const
+  Eigen::MatrixXd getCov() const
   {
     return cov;
   }
 
   // Setter methods
-  void setMt(const Eigen::Vector2d &newMt)
+  void setMt(const Eigen::VectorXd &newMt)
   {
     mt = newMt;
   }
 
-  void setCov(const Eigen::Matrix2d &newCov)
+  void setCov(const Eigen::MatrixXd &newCov)
   {
     cov = newCov;
   }
@@ -237,8 +280,8 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
   void poseEstimation(EKF_Loc &ekf)
   {
     // prediction
-    Eigen::Vector2d newMt;
-    Eigen::Matrix2d newCov;
+    Eigen::VectorXd newMt;
+    Eigen::MatrixXd newCov;
     std::tie(newMt, newCov) = ekf.predict(u_t, ekf.getMt(), ekf.getCov());
     ekf.setMt(newMt);
     ekf.setCov(newCov);
@@ -292,10 +335,10 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
         }
 
         // Call the correct method with z_t and c_t as arguments
-        ekf.correct(z_t, c_t);
-        std::cout << "\n\r############## After correction ##############" << std::endl;
-        ekf.printMtCov();
-        publishPose();
+        //ekf.correct(z_t, c_t);
+        //std::cout << "\n\r############## After correction ##############" << std::endl;
+        //ekf.printMtCov();
+        //publishPose();
       }
 
   }
