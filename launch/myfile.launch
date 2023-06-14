@@ -45,5 +45,9 @@
     <param name="point4" type="yaml" value="{x: -2.0, y: 0.0}" />
 
     <!-- Start test node -->
-    <node pkg="my_cool_project" type="test" name="test_node" output="screen" />
+    <node pkg="my_cool_project" type="Move_Turtlebot" name="Move_Turtlebot_node" output="screen" />
+    <node pkg="my_cool_project" type="EKF_Loc" name="EKF_Loc_node" output="screen" launch-prefix="xterm -e"/>
+
+
+
 </launch>

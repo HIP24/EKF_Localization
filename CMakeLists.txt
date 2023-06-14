@@ -27,5 +27,8 @@ include_directories(
   ${EIGEN3_INCLUDE_DIRS}
 )
 
-add_executable(test src/test.cpp)
-target_link_libraries(test ${catkin_LIBRARIES} pthread)
+add_executable(Move_Turtlebot src/Move_Turtlebot.cpp)
+target_link_libraries(Move_Turtlebot ${catkin_LIBRARIES} pthread)
+
+add_executable(EKF_Loc src/EKF_Loc.cpp)
+target_link_libraries(EKF_Loc ${catkin_LIBRARIES} pthread)

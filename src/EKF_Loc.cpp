@@ -18,8 +18,6 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
-typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
-
 // Define counters
 int odomPrintCount = 0;
 int scanPrintCount = 0;
@@ -236,7 +234,7 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
     cov = newCov;
   }
 
-  void poseEstimation(EKF_Loc &ekf, MoveBaseClient &ac)
+  void poseEstimation(EKF_Loc &ekf)
   {
     // prediction
     Eigen::Vector2d newMt;
@@ -248,16 +246,13 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
     ekf.printMtCov();
 
     // correction
-    if (ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
-    {
-
       // Define a vector of correspondence variables
       std::vector<std::string> c_t;
 
       // Print the size of z_t
       std::cout << "\r\nz_t size: " << z_t.size() << "\r\n"
                 << std::endl;
-
+ 
       if (!z_t.empty())
       {
         // Define a map to keep track of the number of times each landmark was chosen
@@ -302,7 +297,7 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
         ekf.printMtCov();
         publishPose();
       }
-    }
+
   }
 
 void publishPose()
@@ -334,84 +329,37 @@ void publishPose()
 
 int main(int argc, char **argv)
 {
-  ros::init(argc, argv, "map_navigation");
+  ros::init(argc, argv, "ekf_loc");
   ros::NodeHandle nodeHandle;
 
   EKF_Loc ekf;
-  MoveBaseClient ac("move_base", true);
 
   ros::Subscriber odom_sub = nodeHandle.subscribe<nav_msgs::Odometry>("/odom", 3000, std::bind(&EKF_Loc::odomCallback, &ekf, std::placeholders::_1));
   ros::Subscriber scan_sub = nodeHandle.subscribe<sensor_msgs::LaserScan>("/scan", 500, std::bind(&EKF_Loc::scanCallback, &ekf, std::placeholders::_1));
   ros::Subscriber cmd_vel_sub = nodeHandle.subscribe<geometry_msgs::Twist>("/cmd_vel", 1000, std::bind(&EKF_Loc::cmd_velCallback, &ekf, std::placeholders::_1));
 
-  while (!ac.waitForServer(ros::Duration(5.0)))
+
+  // Create a ros::Rate object with a rate of 1 Hz
+  ros::Rate rate(1);
+
+  // Run the EKF update loop
+  while (ros::ok())
   {
-    std::cout << "Waiting for the move_base action server to come up" << std::endl;
-  }
-
-  double points[4][2];
-
-  // Retrieve the points from ROS parameters
-  XmlRpc::XmlRpcValue point1, point2, point3, point4;
-  if (nodeHandle.getParam("point1", point1) &&
-      nodeHandle.getParam("point2", point2) &&
-      nodeHandle.getParam("point3", point3) &&
-      nodeHandle.getParam("point4", point4))
-  {
-    points[0][0] = static_cast<double>(point1["x"]);
-    points[0][1] = static_cast<double>(point1["y"]);
-    points[1][0] = static_cast<double>(point2["x"]);
-    points[1][1] = static_cast<double>(point2["y"]);
-    points[2][0] = static_cast<double>(point3["x"]);
-    points[2][1] = static_cast<double>(point3["y"]);
-    points[3][0] = static_cast<double>(point4["x"]);
-    points[3][1] = static_cast<double>(point4["y"]);
-  }
-  else
-  {
-    // Handle the case when the parameters are not found or have incorrect types
-    // ...
-  }
-
-  for (int i = 0; i < 4; i++)
-  {
-    move_base_msgs::MoveBaseGoal goal;
-    goal.target_pose.header.frame_id = "map";
-    goal.target_pose.header.stamp = ros::Time::now();
-
-    goal.target_pose.pose.position.x = points[i][0];
-    goal.target_pose.pose.position.y = points[i][1];
-    goal.target_pose.pose.orientation.w = 1;
-
-    std::cout << "\r\n\r\n\r\n";
-    std::cout << "Sending goal " << i + 1 << std::endl;
-    ac.sendGoal(goal);
-    ac.waitForResult();
+    ekf.poseEstimation(ekf);
     ros::spinOnce();
-
-    // Print the counts
-    std::cout << std::endl;
-     std::cout << "cmd_velCallback was called " << cmd_velPrintCount << " times." << std::endl;
-    cmd_velPrintCount = 0;
-    std::cout << "odomCallback was called " << odomPrintCount << " times." << std::endl;
-    odomPrintCount = 0;
-    std::cout << "scanCallback was called " << scanPrintCount << " times." << std::endl;
-    scanPrintCount = 0;
-    std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl;
-
-    // Do EKF_Localization with landmarks
-    ekf.poseEstimation(ekf, ac);
-
-    if (ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
-    {
-      // ROS_INFO("Hooray, the base moved to point %d", i+1);
-      std::cout << "\n\rHooray, the base moved to point " << i + 1 << std::endl;
-      std::cout << "\n\r------------------------------------------------------------------------------------------------------" << std::endl;
-    }
-    else
-      // ROS_INFO("The base failed to move to point %d for some reason", i+1);
-      std::cout << "\n\rThe base failed to move to point " << i + 1 << " for some reason" << std::endl;
+    rate.sleep();
   }
 
   return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
