@@ -6,6 +6,7 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
+        - /Marker1
       Splitter Ratio: 0.5
     Tree Height: 780
   - Class: rviz/Selection
@@ -213,6 +214,14 @@ Visualization Manager:
       Shape: Arrow
       Topic: /ekf_pose
       Unreliable: false
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /ellipse
+      Name: Marker
+      Namespaces:
+        ellipse: true
+      Queue Size: 100
       Value: true
   Enabled: true
   Global Options:

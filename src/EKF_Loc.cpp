@@ -18,6 +18,8 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
+#include <visualization_msgs/Marker.h>
+
 // Define counters
 int odomPrintCount = 0;
 int scanPrintCount = 0;
@@ -35,7 +37,7 @@ struct Landmark
 // Create a map to hold all the landmarks
 std::map<std::string, Landmark> landmarks = {
     {"bottom", {-2.5, 0, {1, 0, 0}}},     // Red landmark
-    {"head", {2, 0, {0, 1, 0}}},          // Green landmark
+    {"head", {2.2, 0, {0, 1, 0}}},          // Green landmark
     {"left_wall", {0, 2.4, {0, 0, 1}}},   // Blue landmark
     {"right_wall", {0, -2.4, {1, 1, 0}}}, // Yellow landmark
 };
@@ -56,6 +58,8 @@ private:
   Eigen::MatrixXd Q;
 
   ros::Publisher posePub;
+  ros::Publisher marker_pub;
+
   double roll, pitch, yaw;
   double theta = 0; 
   double delta_t = 0.1; // time step
@@ -64,31 +68,32 @@ private:
   double sigma_y = 0.1; 
   double sigma_theta = 0.1;
   double sigma_v = 0.1; 
-  double sigma_omega = 0.1;
+  double sigma_w = 0.1;
   
+double sigma_x0 = 0.1;
+double sigma_y0 = 0.1;
+double sigma_theta0 = 0.1;
+double sigma_v0 = 0.1;
+double sigma_w0 = 0.1;
 
 public:
   EKF_Loc()
   {
     // initialize with the initial pose [x, y, theta, v, omega]
-    mt.resize(5);
-    mt << 0.5, 0.5, 0, 0, 0; 
+    mt.resize(3);
+    mt << 0.5, 0.5, 0; 
 
     // Initialize initial covariance
-    cov.resize(5, 5);
-    cov << 1e-5, 0, 0, 0, 0,
-           0, 1e-5, 0, 0, 0,
-           0, 0, 1e-5, 0 ,0,
-           0 ,0 ,0 ,1e-5 ,0,
-           0 ,0 ,0 ,0 ,1e-5;
+    cov.resize(3, 3);
+    cov << pow(sigma_x0,2),    0 ,            0 ,
+        0 ,            pow(sigma_y0 ,2),    0 , 
+        0 ,            0 ,            pow(sigma_theta0 ,2);
 
     // initialize process noise
-    R.resize(5, 5);
-    R << pow(sigma_x, 2), 0, 0, 0, 0,
-         0, pow(sigma_y, 2), 0, 0, 0,
-         0, 0, pow(sigma_theta, 2), 0 ,0,
-         0 ,0 ,0 ,pow(sigma_v, 2) ,0,
-         0 ,0 ,0 ,0 ,pow(sigma_omega, 2);
+    R.resize(3, 3);
+R << pow(sigma_x,2),    0 ,            0 ,       
+        0 ,            pow(sigma_y ,2),    0 , 
+        0 ,            0 ,            pow(sigma_theta ,2);
 
   // initialize measurement noise
     Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
@@ -96,6 +101,9 @@ public:
   // initialize nodeHandle for ekf_pose
     ros::NodeHandle nodeHandle;
     posePub = nodeHandle.advertise<geometry_msgs::PoseStamped>("/ekf_pose", 10);
+
+    marker_pub = nodeHandle.advertise<visualization_msgs::Marker>("/ellipse", 10);
+
 
   }
 
@@ -107,6 +115,7 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
     double v = commandMsg->linear.x;;  // Forward velocity
     double w = commandMsg->angular.z;; // Rotational velocity
     u_t << v, w;
+    predictStep();
 }
 
   // odom callback function
@@ -175,24 +184,22 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
     std::cout << "A:\r\n " << A << std::endl;
     std::cout << "B:\r\n " << B << std::endl;
 
-A.resize(5, 5);
-A << 1, 0, 0, delta_t * cos(theta) * u_t(0) - delta_t * sin(theta) * u_t(1), 0,
-     0, 1, 0, delta_t * sin(theta) * u_t(0) + delta_t * cos(theta) * u_t(1), 0,
-     0, 0, 1,         0,            delta_t,
-     0, 0, 0,         1,            0,
-     0, 0, 0,         0,            1;
+    A.resize(3, 3);
+    A << 1, 0, -u_t[0] * delta_t * sin(theta),
+         0, 1, u_t[0]* delta_t * cos(theta),
+         0, 0, 1;
+
+mt(0) += u_t[0] * delta_t * cos(theta);
+mt(1) += u_t[0] * delta_t * sin(theta); 
+mt(2) += u_t[1] * delta_t; 
+
+    B.resize(3, 2);
+    B << delta_t * cos(theta), 0,
+         delta_t * sin(theta), 0,
+         0, delta_t;
 
 
-B.resize(5, 2);
-B << 0, 0,
-     0, 0,
-     0, 0,
-     0, 0,
-     0, delta_t;
-
-
-
-    mt = A * mt_prev + B * ut;              // prediction
+    //mt = A * mt_prev + B * ut;              // prediction
     cov = A * cov_prev * A.transpose() + R; // update error covariance
     return std::make_pair(mt, cov);
   }
@@ -267,46 +274,62 @@ void correct(const std::vector<std::pair<double, double>> &z_t, const std::vecto
     cov = newCov;
   }
 
-  void poseEstimation(EKF_Loc &ekf)
-  {
-    // prediction
-    Eigen::VectorXd newMt;
-    Eigen::MatrixXd newCov;
-    std::tie(newMt, newCov) = ekf.predict(u_t, ekf.getMt(), ekf.getCov());
-    ekf.setMt(newMt);
-    ekf.setCov(newCov);
-    std::cout << "\n\r############## After prediction ##############" << std::endl;
-    ekf.printMtCov();
+void predictStep()
+{
+  // prediction
+  Eigen::VectorXd newMt;
+  Eigen::MatrixXd newCov;
+  std::tie(newMt, newCov) = predict(u_t, getMt(), getCov());
+  setMt(newMt);
+  setCov(newCov);
+  std::cout << "\n\r############## After prediction ##############" << std::endl;
+  printMtCov();
+  publishPose();
+  publishCovarianceEllipse();
+}
 
-    // correction
-      // Define a vector of correspondence variables
-      std::vector<std::string> c_t;
 
-      // Print the size of z_t
-      std::cout << "\r\nz_t size: " << z_t.size() << "\r\n" << std::endl;
- 
-      if (!z_t.empty())
+void poseEstimation()
+{
+predictStep();
+
+
+  /*
+  // correction
+    // Define a vector of correspondence variables
+    std::vector<std::string> c_t;
+
+    // Print the size of z_t
+    std::cout << "\r\nz_t size: " << z_t.size() << "\r\n" << std::endl;
+
+    if (!z_t.empty())
+    {
+      // Define a map to keep track of the number of times each landmark was chosen
+      std::map<std::string, int> landmark_counts;
+
+      // Set the maximum distance threshold for the closest landmark
+      double max_distance = 10.0;
+
+      for (const auto &measurement : z_t)
       {
-        // Define a map to keep track of the number of times each landmark was chosen
-        std::map<std::string, int> landmark_counts;
-
-        for (const auto &measurement : z_t)
+        // Find the landmark closest to the measurement
+        double min_distance = std::numeric_limits<double>::max();
+        std::string closest_landmark;
+        for (const auto &landmark : landmarks)
         {
-          // Find the landmark closest to the measurement
-          double min_distance = std::numeric_limits<double>::max();
-          std::string closest_landmark;
-          for (const auto &landmark : landmarks)
+          double dx = measurement.first - landmark.second.landX;
+          double dy = measurement.second - landmark.second.landY;
+          double distance = sqrt(dx * dx + dy * dy);
+          if (distance < min_distance)
           {
-            double dx = measurement.first - landmark.second.landX;
-            double dy = measurement.second - landmark.second.landY;
-            double distance = sqrt(dx * dx + dy * dy);
-            if (distance < min_distance)
-            {
-              min_distance = distance;
-              closest_landmark = landmark.first;
-            }
+            min_distance = distance;
+            closest_landmark = landmark.first;
           }
+        }
 
+        // Check if the minimum distance is below the maximum distance threshold
+        if (min_distance < max_distance)
+        {
           // Add the closest landmark to c_t
           c_t.push_back(closest_landmark);
 
@@ -316,21 +339,72 @@ void correct(const std::vector<std::pair<double, double>> &z_t, const std::vecto
           // Print the correspondence
           //std::cout << "Measurement: (" << measurement.first << ", " << measurement.second << ") -> Landmark: " << closest_landmark << ", Distance: " << min_distance << std::endl;
         }
+      }
 
         // Print the number of times each landmark was chosen
         for (const auto &landmark_count : landmark_counts)
         {
-          //std::cout << "Landmark: " << landmark_count.first << " -> Count: " << landmark_count.second << std::endl;
+          std::cout << "Landmark: " << landmark_count.first << " -> Count: " << landmark_count.second << std::endl;
         }
 
+      // Set the minimum count threshold for each landmark
+      int min_count = 200;
+
+      // Find the landmark with the highest count above the minimum count threshold
+      int max_count = 0;
+      std::string best_landmark;
+      for (const auto &landmark_count : landmark_counts)
+      {
+        if (landmark_count.second > max_count && landmark_count.second > min_count)
+        {
+          max_count = landmark_count.second;
+          best_landmark = landmark_count.first;
+        }
+      }
+
+        
+      // Check if a best landmark was found
+      if (!best_landmark.empty())
+      {
+        // Keep only the measurements associated with the best landmark in z_t
+        auto it_z = z_t.begin();
+        auto it_c = c_t.begin();
+        while (it_z != z_t.end() && it_c != c_t.end())
+        {
+          if (*it_c != best_landmark)
+          {
+            it_z = z_t.erase(it_z);
+            it_c = c_t.erase(it_c);
+          }
+          else
+          {
+            ++it_z;
+            ++it_c;
+          }
+        }
+
+        // Keep only the best landmark in c_t
+        c_t.erase(std::remove_if(c_t.begin(), c_t.end(), [&](const std::string &landmark) { return landmark != best_landmark; }), c_t.end());
+
+        std::cout << "filtered z_t size: " << z_t.size() << std::endl;
+        std::cout << "filtered c_t size: " << c_t.size() << std::endl;
+
+        if(c_t.size() !=0 && c_t.size() == z_t.size()){
+          
         // Call the correct method with z_t and c_t as arguments
         ekf.correct(z_t, c_t);
         std::cout << "\n\r############## After correction ##############" << std::endl;
         ekf.printMtCov();
-        publishPose();
+        //publishPose();
+        //publishCovarianceEllipse();
+        }
+        else  std::cout << "Landmark detected but distance too high" << std::endl;
       }
+    }
+std::cout << "-------------------------------------------------------------------------------------" << std::endl;
+*/
+}
 
-  }
 
 void publishPose()
 {
@@ -344,12 +418,57 @@ void publishPose()
   poseMsg.pose.position.x = mt(0);
   poseMsg.pose.position.y = mt(1);
   tf2::Quaternion quat;
-  quat.setRPY(0, 0, yaw); // replace 0.0 with the yaw of your robot
+  quat.setRPY(0, 0, yaw); 
   poseMsg.pose.orientation = tf2::toMsg(quat);
 
 
   // Publish the pose
   posePub.publish(poseMsg);
+}
+
+void publishCovarianceEllipse()
+{
+    // Compute the eigenvalues and eigenvectors of the covariance matrix
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solver(cov.block<2, 2>(0, 0));
+    Eigen::Vector2d eigenvalues = solver.eigenvalues();
+    Eigen::Matrix2d eigenvectors = solver.eigenvectors();
+
+    // Compute the angle of rotation and the semi-major and semi-minor axes of the ellipse
+    double angle = atan2(eigenvectors(1, 0), eigenvectors(0, 0));
+    double a = sqrt(eigenvalues(0));
+    double b = sqrt(eigenvalues(1));
+
+    // Create a marker message to represent the ellipse
+    visualization_msgs::Marker marker;
+    marker.header.frame_id = "map";
+    marker.header.stamp = ros::Time::now();
+    marker.ns = "ellipse";
+    marker.id = 0;
+    marker.type = visualization_msgs::Marker::CYLINDER;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.position.x = mt(0);
+    marker.pose.position.y = mt(1);
+    marker.pose.position.z = 0;
+
+    // Create a tf2::Quaternion object
+    tf2::Quaternion quat;
+
+    // Set the quaternion's yaw angle
+    quat.setRPY(0, 0, angle);
+
+    // Convert the quaternion to a geometry_msgs::Quaternion message
+    marker.pose.orientation = tf2::toMsg(quat);
+
+    marker.scale.x = a * 2;
+    marker.scale.y = b * 2;
+    marker.scale.z = 0.1;
+    marker.color.a = 0.5;
+    marker.color.r = 1.0;
+    marker.color.g = 0.0;
+    marker.color.b = 0.0;
+
+    // Publish the marker message
+    marker_pub.publish(marker);
 }
 
 
@@ -370,17 +489,11 @@ int main(int argc, char **argv)
   ros::Subscriber scan_sub = nodeHandle.subscribe<sensor_msgs::LaserScan>("/scan", 500, std::bind(&EKF_Loc::scanCallback, &ekf, std::placeholders::_1));
   ros::Subscriber cmd_vel_sub = nodeHandle.subscribe<geometry_msgs::Twist>("/cmd_vel", 1000, std::bind(&EKF_Loc::cmd_velCallback, &ekf, std::placeholders::_1));
 
-
   // Create a ros::Rate object with a rate of 1 Hz
-  ros::Rate rate(1);
+  //ros::Rate rate(2);
+  ros::spin();
 
-  // Run the EKF update loop
-  while (ros::ok())
-  {
-    ekf.poseEstimation(ekf);
-    ros::spinOnce();
-    rate.sleep();
-  }
+
 
   return 0;
 }
