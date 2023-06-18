@@ -61,6 +61,7 @@ private:
   ros::Publisher marker_pub;
 
   double roll, pitch, yaw;
+  
   double theta = 0; 
   double delta_t = 0.1; // time step
   double sigma = 0.1;   // noise standard deviation
@@ -103,9 +104,8 @@ public:
 
   }
 
-
-  // imu callback function
-void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
+  // cmd_vel callback function
+  void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
 {
     ++cmd_velPrintCount;
     double v = commandMsg->linear.x;;  // Forward velocity
@@ -135,7 +135,7 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
   // scan callback function
   void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
   {
-    ++scanPrintCount;
+  ++scanPrintCount;
   z_t.clear();
   double current_angle = msg->angle_min;
 
@@ -172,72 +172,6 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
 
   }
 
-  std::pair<Eigen::VectorXd, Eigen::MatrixXd> predict(const Eigen::Vector2d &ut, const Eigen::VectorXd &mt_prev, const Eigen::MatrixXd &cov_prev)
-  {
-    std::cout << "Theta:\r\n " << theta << std::endl;
-    std::cout << "v:\r\n " << u_t(0) << std::endl;
-    std::cout << "w:\r\n " << u_t(1) << std::endl;
-    //std::cout << "A:\r\n " << A << std::endl;
-    //std::cout << "B:\r\n " << B << std::endl;
-
-    A.resize(3, 3);
-    A << 1, 0, -u_t[0] * delta_t * sin(theta),
-         0, 1, u_t[0]* delta_t * cos(theta),
-         0, 0, 1;
-
-    mt(0) += u_t[0] * delta_t * cos(theta);
-    mt(1) += u_t[0] * delta_t * sin(theta); 
-    mt(2) += u_t[1] * delta_t; 
-
-    B.resize(3, 2);
-    B << u_t[0] * delta_t * cos(theta), 0,
-         u_t[0] * delta_t * sin(theta), 0,
-         0, u_t[1] * delta_t;
-
-    //mt = A * mt_prev + B * ut;              // prediction
-    cov = A * cov_prev * A.transpose() + R; // update error covariance
-    return std::make_pair(mt, cov);
-  }
-
-void correct(const std::vector<std::pair<double, double>> &z_t, const std::vector<std::string> &c_t)
-{
-  if (!z_t.empty())
-  {
-    for (int i = 0; i < z_t.size(); ++i)
-    {
-      // Determine the index of the landmark corresponding to the observed feature
-      std::string j = c_t[i];
-
-      // Calculate the vector Δ as the difference between the landmark position and the robot position
-      Eigen::Vector2d delta;
-      delta << landmarks[j].landX - mt(0), landmarks[j].landY - mt(1);
-
-      // Calculate the variable q as the squared magnitude of Δ
-      double q = delta.squaredNorm();
-
-      // Calculate the expected measurement ^zit based on Δ and q
-      Eigen::Vector2d expected_z;
-      expected_z << sqrt(q), atan2(delta(1), delta(0));
-
-      // Calculate the Jacobian matrix Hit based on Δ and q
-      Eigen::Matrix<double, 2, 3> H;
-      H << -delta(0) / sqrt(q), -delta(1) / sqrt(q), 0,
-            delta(1) / q, -delta(0) / q, 0;
-
-      // Calculate the Kalman gain Kit based on Hit, Qt, and Σt
-      Eigen::Matrix<double, 3, 2> K = cov * H.transpose() * (H * cov * H.transpose() + Q).inverse();
-
-      // Compute the innovation
-      Eigen::Vector2d z(z_t[i].first, z_t[i].second);
-      Eigen::Vector2d innovation = z - expected_z;
-
-      // Compute the posterior state
-      mt = mt + K * innovation;
-      cov = (Eigen::MatrixXd::Identity(3, 3) - K * H) * cov;
-    }
-  }
-}
-
 
   void printMtCov()
   {
@@ -250,11 +184,13 @@ void correct(const std::vector<std::pair<double, double>> &z_t, const std::vecto
   // Getter methods
   Eigen::VectorXd getMt() const
   {
+    std::cout << "mt: \r\n"<< mt << std::endl;
     return mt;
   }
 
   Eigen::MatrixXd getCov() const
   {
+    std::cout << "cov: \r\n" << cov << std::endl;
     return cov;
   }
 
@@ -279,13 +215,11 @@ void correct(const std::vector<std::pair<double, double>> &z_t, const std::vecto
   setCov(newCov);
   std::cout << "\n\r############## After prediction ##############" << std::endl;
   printMtCov();
-  publishPose();
-  publishCovarianceEllipse();
 }
 
   void correctionStep()
 {
-// correction
+    // correction
     // Define a vector of correspondence variables
     std::vector<std::string> c_t;
 
@@ -385,25 +319,93 @@ void correct(const std::vector<std::pair<double, double>> &z_t, const std::vecto
         correct(z_t, c_t);
         std::cout << "\n\r############## After correction ##############" << std::endl;
         printMtCov();
-        publishPose();
-        publishCovarianceEllipse();
         }
         else  std::cout << "Landmark detected but distance too high" << std::endl;
       }
     }
-std::cout << "-------------------------------------------------------------------------------------" << std::endl;
+std::cout << "---------------------------------------------" << std::endl;
 }
 
+  std::pair<Eigen::VectorXd, Eigen::MatrixXd> predict(const Eigen::Vector2d &ut, const Eigen::VectorXd &mt_prev, const Eigen::MatrixXd &cov_prev)
+  {
+    std::cout << "Theta:\r\n " << theta << std::endl;
+    std::cout << "v:\r\n " << u_t(0) << std::endl;
+    std::cout << "w:\r\n " << u_t(1) << std::endl;
+    //std::cout << "A:\r\n " << A << std::endl;
+    //std::cout << "B:\r\n " << B << std::endl;
 
-void poseEstimation()
+    A.resize(3, 3);
+    A << 1, 0, -u_t[0] * delta_t * sin(theta),
+         0, 1, u_t[0]* delta_t * cos(theta),
+         0, 0, 1;
+
+    mt(0) += u_t[0] * delta_t * cos(theta);
+    mt(1) += u_t[0] * delta_t * sin(theta); 
+    mt(2) += u_t[1] * delta_t; 
+    mt(2) = std::atan2(std::sin(mt(2)), std::cos(mt(2)));
+
+    B.resize(3, 2);
+    B << u_t[0] * delta_t * cos(theta), 0,
+         u_t[0] * delta_t * sin(theta), 0,
+         0, u_t[1] * delta_t;
+
+    //mt = A * mt_prev + B * ut;              // prediction
+    cov = A * cov_prev * A.transpose() + R; // update error covariance
+    return std::make_pair(mt, cov);
+  }
+
+  void correct(const std::vector<std::pair<double, double>> &z_t, const std::vector<std::string> &c_t)
+{
+  if (!z_t.empty())
+  {
+    for (int i = 0; i < z_t.size(); ++i)
+    {
+      // Determine the index of the landmark corresponding to the observed feature
+      std::string j = c_t[i];
+
+      // Calculate the vector Δ as the difference between the landmark position and the robot position
+      Eigen::Vector2d delta;
+      delta << landmarks[j].landX - mt(0), landmarks[j].landY - mt(1);
+
+      // Calculate the variable q as the squared magnitude of Δ
+      double q = delta.squaredNorm();
+
+      // Calculate the expected measurement ^zit based on Δ and q
+      Eigen::Vector2d expected_z;
+      expected_z << sqrt(q), atan2(delta(1), delta(0));
+
+      // Calculate the Jacobian matrix Hit based on Δ and q
+      Eigen::Matrix<double, 2, 3> H;
+      H << -delta(0) / sqrt(q), -delta(1) / sqrt(q), 0,
+            delta(1) / q, -delta(0) / q, 0;
+
+      // Calculate the Kalman gain Kit based on Hit, Qt, and Σt
+      Eigen::Matrix<double, 3, 2> K = cov * H.transpose() * (H * cov * H.transpose() + Q).inverse();
+
+      // Compute the innovation
+      Eigen::Vector2d z(z_t[i].first, z_t[i].second);
+      Eigen::Vector2d innovation = z - expected_z;
+
+      // Compute the posterior state
+      mt = mt + K * innovation;
+      cov = (Eigen::MatrixXd::Identity(3, 3) - K * H) * cov;
+    }
+  }
+}
+
+  void poseEstimation()
 {
   predictionStep();
     //if(landmarkDetected){
-  //correctionStep();
+  correctionStep();
   //}
+
+
+  publishPose();
+  publishCovarianceEllipse();
 }
 
-void publishPose()
+  void publishPose()
 {
   geometry_msgs::PoseStamped poseMsg;
 
@@ -414,16 +416,31 @@ void publishPose()
   // Set the pose data
   poseMsg.pose.position.x = mt(0);
   poseMsg.pose.position.y = mt(1);
-  tf2::Quaternion quat;
-  quat.setRPY(0, 0, yaw); 
-  poseMsg.pose.orientation = tf2::toMsg(quat);
 
+  double roll = 0;
+  double pitch = 0;
+  double yaw = mt(2); // your yaw angle in radians
+
+  tf2::Quaternion q;
+  q.setRPY(roll, pitch, yaw);
+
+  geometry_msgs::Quaternion quat_msg;
+  quat_msg.x = q.x();
+  quat_msg.y = q.y();
+  quat_msg.z = q.z();
+  quat_msg.w = q.w();
+
+  poseMsg.pose.orientation = quat_msg;
+
+  //tf2::Quaternion quat;
+  //quat.setRPY(0, 0, yaw); 
+  //poseMsg.pose.orientation = tf2::toMsg(quat);
 
   // Publish the pose
   posePub.publish(poseMsg);
 }
 
-void publishCovarianceEllipse()
+  void publishCovarianceEllipse()
 {
     // Compute the eigenvalues and eigenvectors of the covariance matrix
     Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solver(cov.block<2, 2>(0, 0));
@@ -447,14 +464,24 @@ void publishCovarianceEllipse()
     marker.pose.position.y = mt(1);
     marker.pose.position.z = 0;
 
-    // Create a tf2::Quaternion object
-    tf2::Quaternion quat;
+    double roll = 0;
+    double pitch = 0;
+    double yaw = mt(2); // your yaw angle in radians
 
-    // Set the quaternion's yaw angle
-    quat.setRPY(0, 0, angle);
+    tf2::Quaternion q;
+    q.setRPY(roll, pitch, yaw);
 
-    // Convert the quaternion to a geometry_msgs::Quaternion message
-    marker.pose.orientation = tf2::toMsg(quat);
+    geometry_msgs::Quaternion quat_msg;
+    quat_msg.x = q.x();
+    quat_msg.y = q.y();
+    quat_msg.z = q.z();
+    quat_msg.w = q.w();
+
+    marker.pose.orientation = quat_msg;
+
+    //tf2::Quaternion quat;
+    //quat.setRPY(0, 0, angle);
+    //marker.pose.orientation = tf2::toMsg(quat);
 
     marker.scale.x = a * 2;
     marker.scale.y = b * 2;
@@ -467,7 +494,6 @@ void publishCovarianceEllipse()
     // Publish the marker message
     marker_pub.publish(marker);
 }
-
 };
 
 
