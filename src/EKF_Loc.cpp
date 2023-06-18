@@ -67,14 +67,10 @@ private:
   double sigma_x = 0.1; 
   double sigma_y = 0.1; 
   double sigma_theta = 0.1;
-  double sigma_v = 0.1; 
-  double sigma_w = 0.1;
   
-double sigma_x0 = 0.1;
-double sigma_y0 = 0.1;
-double sigma_theta0 = 0.1;
-double sigma_v0 = 0.1;
-double sigma_w0 = 0.1;
+  double sigma_x0 = 0.1;
+  double sigma_y0 = 0.1;
+  double sigma_theta0 = 0.1;
 
 public:
   EKF_Loc()
@@ -91,14 +87,14 @@ public:
 
     // initialize process noise
     R.resize(3, 3);
-R << pow(sigma_x,2),    0 ,            0 ,       
+    R << pow(sigma_x,2),    0 ,            0 ,       
         0 ,            pow(sigma_y ,2),    0 , 
         0 ,            0 ,            pow(sigma_theta ,2);
 
-  // initialize measurement noise
+    // initialize measurement noise
     Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
 
-  // initialize nodeHandle for ekf_pose
+    // initialize nodeHandle for ekf_pose
     ros::NodeHandle nodeHandle;
     posePub = nodeHandle.advertise<geometry_msgs::PoseStamped>("/ekf_pose", 10);
 
@@ -115,7 +111,7 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
     double v = commandMsg->linear.x;;  // Forward velocity
     double w = commandMsg->angular.z;; // Rotational velocity
     u_t << v, w;
-    predictStep();
+    poseEstimation();
 }
 
   // odom callback function
@@ -181,23 +177,22 @@ void cmd_velCallback(const geometry_msgs::Twist::ConstPtr& commandMsg)
     std::cout << "Theta:\r\n " << theta << std::endl;
     std::cout << "v:\r\n " << u_t(0) << std::endl;
     std::cout << "w:\r\n " << u_t(1) << std::endl;
-    std::cout << "A:\r\n " << A << std::endl;
-    std::cout << "B:\r\n " << B << std::endl;
+    //std::cout << "A:\r\n " << A << std::endl;
+    //std::cout << "B:\r\n " << B << std::endl;
 
     A.resize(3, 3);
     A << 1, 0, -u_t[0] * delta_t * sin(theta),
          0, 1, u_t[0]* delta_t * cos(theta),
          0, 0, 1;
 
-mt(0) += u_t[0] * delta_t * cos(theta);
-mt(1) += u_t[0] * delta_t * sin(theta); 
-mt(2) += u_t[1] * delta_t; 
+    mt(0) += u_t[0] * delta_t * cos(theta);
+    mt(1) += u_t[0] * delta_t * sin(theta); 
+    mt(2) += u_t[1] * delta_t; 
 
     B.resize(3, 2);
-    B << delta_t * cos(theta), 0,
-         delta_t * sin(theta), 0,
-         0, delta_t;
-
+    B << u_t[0] * delta_t * cos(theta), 0,
+         u_t[0] * delta_t * sin(theta), 0,
+         0, u_t[1] * delta_t;
 
     //mt = A * mt_prev + B * ut;              // prediction
     cov = A * cov_prev * A.transpose() + R; // update error covariance
@@ -225,12 +220,12 @@ void correct(const std::vector<std::pair<double, double>> &z_t, const std::vecto
       expected_z << sqrt(q), atan2(delta(1), delta(0));
 
       // Calculate the Jacobian matrix Hit based on Δ and q
-      Eigen::Matrix<double, 2, 5> H;
-      H << -delta(0) / sqrt(q), -delta(1) / sqrt(q), 0, 0, 0,
-            delta(1) / q, -delta(0) / q, 0, 0, 0;
+      Eigen::Matrix<double, 2, 3> H;
+      H << -delta(0) / sqrt(q), -delta(1) / sqrt(q), 0,
+            delta(1) / q, -delta(0) / q, 0;
 
       // Calculate the Kalman gain Kit based on Hit, Qt, and Σt
-      Eigen::Matrix<double, 5, 2> K = cov * H.transpose() * (H * cov * H.transpose() + Q).inverse();
+      Eigen::Matrix<double, 3, 2> K = cov * H.transpose() * (H * cov * H.transpose() + Q).inverse();
 
       // Compute the innovation
       Eigen::Vector2d z(z_t[i].first, z_t[i].second);
@@ -238,7 +233,7 @@ void correct(const std::vector<std::pair<double, double>> &z_t, const std::vecto
 
       // Compute the posterior state
       mt = mt + K * innovation;
-      cov = (Eigen::MatrixXd::Identity(5, 5) - K * H) * cov;
+      cov = (Eigen::MatrixXd::Identity(3, 3) - K * H) * cov;
     }
   }
 }
@@ -274,7 +269,7 @@ void correct(const std::vector<std::pair<double, double>> &z_t, const std::vecto
     cov = newCov;
   }
 
-void predictStep()
+  void predictionStep()
 {
   // prediction
   Eigen::VectorXd newMt;
@@ -288,14 +283,9 @@ void predictStep()
   publishCovarianceEllipse();
 }
 
-
-void poseEstimation()
+  void correctionStep()
 {
-predictStep();
-
-
-  /*
-  // correction
+// correction
     // Define a vector of correspondence variables
     std::vector<std::string> c_t;
 
@@ -392,19 +382,26 @@ predictStep();
         if(c_t.size() !=0 && c_t.size() == z_t.size()){
           
         // Call the correct method with z_t and c_t as arguments
-        ekf.correct(z_t, c_t);
+        correct(z_t, c_t);
         std::cout << "\n\r############## After correction ##############" << std::endl;
-        ekf.printMtCov();
-        //publishPose();
-        //publishCovarianceEllipse();
+        printMtCov();
+        publishPose();
+        publishCovarianceEllipse();
         }
         else  std::cout << "Landmark detected but distance too high" << std::endl;
       }
     }
 std::cout << "-------------------------------------------------------------------------------------" << std::endl;
-*/
 }
 
+
+void poseEstimation()
+{
+  predictionStep();
+    //if(landmarkDetected){
+  //correctionStep();
+  //}
+}
 
 void publishPose()
 {
@@ -471,11 +468,7 @@ void publishCovarianceEllipse()
     marker_pub.publish(marker);
 }
 
-
 };
-
-
-
 
 
 int main(int argc, char **argv)
@@ -489,11 +482,7 @@ int main(int argc, char **argv)
   ros::Subscriber scan_sub = nodeHandle.subscribe<sensor_msgs::LaserScan>("/scan", 500, std::bind(&EKF_Loc::scanCallback, &ekf, std::placeholders::_1));
   ros::Subscriber cmd_vel_sub = nodeHandle.subscribe<geometry_msgs::Twist>("/cmd_vel", 1000, std::bind(&EKF_Loc::cmd_velCallback, &ekf, std::placeholders::_1));
 
-  // Create a ros::Rate object with a rate of 1 Hz
-  //ros::Rate rate(2);
   ros::spin();
-
-
 
   return 0;
 }
