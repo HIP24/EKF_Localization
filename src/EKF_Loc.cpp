@@ -134,7 +134,7 @@ public:
 
   // scan callback function
   void scanCallback(const sensor_msgs::LaserScan::ConstPtr &msg)
-  {
+{
   ++scanPrintCount;
   z_t.clear();
   double current_angle = msg->angle_min;
@@ -169,8 +169,8 @@ public:
     current_angle += msg->angle_increment;
   }
 
-
-  }
+  
+}
 
 
   void printMtCov()
@@ -261,7 +261,7 @@ public:
           ++landmark_counts[closest_landmark];
 
           // Print the correspondence
-          //std::cout << "Measurement: (" << measurement.first << ", " << measurement.second << ") -> Landmark: " << closest_landmark << ", Distance: " << min_distance << std::endl;
+          std::cout << "Measurement: (" << measurement.first << ", " << measurement.second << ") -> Landmark: " << closest_landmark << ", Distance: " << min_distance << std::endl;
         }
       }
 
@@ -286,7 +286,7 @@ public:
         }
       }
 
-        
+
       // Check if a best landmark was found
       if (!best_landmark.empty())
       {
@@ -316,9 +316,9 @@ public:
         if(c_t.size() !=0 && c_t.size() == z_t.size()){
           
         // Call the correct method with z_t and c_t as arguments
-        correct(z_t, c_t);
-        std::cout << "\n\r############## After correction ##############" << std::endl;
-        printMtCov();
+        //correct(z_t, c_t);
+        //std::cout << "\n\r############## After correction ##############" << std::endl;
+        //printMtCov();
         }
         else  std::cout << "Landmark detected but distance too high" << std::endl;
       }
