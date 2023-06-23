@@ -14,6 +14,13 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 find_package(Eigen3 REQUIRED)
+find_package(PCL REQUIRED)
+include_directories(${PCL_INCLUDE_DIRS})
+link_directories(${PCL_LIBRARY_DIRS})
+add_definitions(${PCL_DEFINITIONS})
+find_package(laser_geometry REQUIRED)
+include_directories(${laser_geometry_INCLUDE_DIRS})
+link_directories(${laser_geometry_LIBRARY_DIRS})
 
 catkin_package(
 #  INCLUDE_DIRS include
@@ -32,4 +39,7 @@ add_executable(Move_Turtlebot src/Move_Turtlebot.cpp)
 target_link_libraries(Move_Turtlebot ${catkin_LIBRARIES} pthread)
 
 add_executable(EKF_Loc src/EKF_Loc.cpp)
-target_link_libraries(EKF_Loc ${catkin_LIBRARIES} pthread)
+target_link_libraries(EKF_Loc ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${laser_geometry_LIBRARIES} pthread)
+
+add_executable(cl src/cl.cpp)
+target_link_libraries(cl ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${laser_geometry_LIBRARIES} pthread)

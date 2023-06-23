@@ -6,6 +6,7 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
+        - /MarkerArray1
       Splitter Ratio: 0.5
     Tree Height: 780
   - Class: rviz/Selection
@@ -218,6 +219,14 @@ Visualization Manager:
       Enabled: true
       Marker Topic: /ellipse
       Name: Marker
+      Namespaces:
+        ellipse: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /detected_circles_markers
+      Name: MarkerArray
       Namespaces:
         {}
       Queue Size: 100
