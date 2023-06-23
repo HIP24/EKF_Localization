@@ -41,5 +41,3 @@ target_link_libraries(Move_Turtlebot ${catkin_LIBRARIES} pthread)
 add_executable(EKF_Loc src/EKF_Loc.cpp)
 target_link_libraries(EKF_Loc ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${laser_geometry_LIBRARIES} pthread)
 
-add_executable(cl src/cl.cpp)
-target_link_libraries(cl ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${laser_geometry_LIBRARIES} pthread)

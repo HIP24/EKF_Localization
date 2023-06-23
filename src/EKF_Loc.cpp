@@ -42,21 +42,6 @@ int scanPrintCount = 0;
 int cmd_velPrintCount = 0;
 double robot_x, robot_y, robot_quat_z, robot_quat_w;
 
-// Create a struct to hold the x, y coordinates, and signature vector of each landmark
-struct Landmark
-{
-  double landX;
-  double landY;
-  std::vector<double> signature;
-};
-
-// Create a map to hold all the landmarks
-std::map<std::string, Landmark> landmarks = {
-    {"bottom", {-2.5, 0, {1, 0, 0}}},     // Red landmark
-    {"head", {2.2, 0, {0, 1, 0}}},          // Green landmark
-    {"left_wall", {0, 2.4, {0, 0, 1}}},   // Blue landmark
-    {"right_wall", {0, -2.4, {1, 1, 0}}}, // Yellow landmark
-};
 
 class EKF_Loc
 {
@@ -73,9 +58,6 @@ private:
 
   Eigen::MatrixXd Q;
 
-  ros::Publisher posePub;
-  ros::Publisher marker_pub;
-
   double roll, pitch, yaw;
   
   double theta = 0; 
@@ -90,20 +72,22 @@ private:
   double sigma_theta0 = 0.1;
 
 
-    ros::NodeHandle node_;
-    laser_geometry::LaserProjection projector_;
-    tf::TransformListener tfListener_;
-    ros::Publisher point_cloud_publisher_;
-    ros::Publisher marker_pub2;
-    ros::Publisher valuePub;
-    ros::Subscriber scan_sub_;
+  laser_geometry::LaserProjection laserProjection;
+  tf::TransformListener transformListener;
+  ros::Publisher point_pub;
+  ros::Publisher marker_pub2;
+  ros::Publisher value_pub;
+  ros::Publisher posePub;
+  ros::Publisher marker_pub;
+
     struct Landmark {
-    double landmarkinnerthresh;
-    double landmarkouterthresh;
-    double groundtruth_X;
-    double groundtruth_Y;
-    int signature;};
-    std::map<int, Landmark> landmarkMap;
+    double innerTH;
+    double outerTH;
+    double landX;
+    double landY;
+    int signature;
+    };
+    std::map<int, Landmark> landmark_map;
 
 public:
   EKF_Loc()
@@ -128,39 +112,37 @@ public:
     Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
 
     // initialize nodeHandle for ekf_pose
-    ros::NodeHandle nodeHandle;
-    posePub = nodeHandle.advertise<geometry_msgs::PoseStamped>("/ekf_pose", 10);
+    ros::NodeHandle nodeHandle_adv;
+    posePub = nodeHandle_adv.advertise<geometry_msgs::PoseStamped>("/ekf_pose", 10);
+    marker_pub = nodeHandle_adv.advertise<visualization_msgs::Marker>("/ellipse", 10);
+    point_pub = nodeHandle_adv.advertise<sensor_msgs::PointCloud2> ("/cloud", 1000, false);
+    marker_pub2 = nodeHandle_adv.advertise<visualization_msgs::MarkerArray>("detected_circles_markers", 1);
+    value_pub = nodeHandle_adv.advertise<geometry_msgs::PoseArray>("circle_angle_range", 1);
 
-    marker_pub = nodeHandle.advertise<visualization_msgs::Marker>("/ellipse", 10);
+    Landmark three_one;
+    three_one.innerTH = 0.30;
+    three_one.outerTH = 0.40;
+    three_one.landX = 1.1;
+    three_one.landY = -1.1;
+    three_one.signature = 1;
+    landmark_map[three_one.signature] = three_one;
 
-    scan_sub_ = node_.subscribe<sensor_msgs::LaserScan> ("/scan", 100, &EKF_Loc::scanCallback, this);
-    point_cloud_publisher_ = node_.advertise<sensor_msgs::PointCloud2> ("/cloud", 1000, false);
-    marker_pub2 = node_.advertise<visualization_msgs::MarkerArray>("detected_circles_markers", 1);
-    valuePub = node_.advertise<geometry_msgs::PoseArray>("circle_angle_range", 1);
-    Landmark landmark1;
-    landmark1.landmarkinnerthresh = 0.30;
-    landmark1.landmarkouterthresh = 0.40;
-    landmark1.groundtruth_X = 1.1;
-    landmark1.groundtruth_Y = -1.1;
-    landmark1.signature = 1;
+    Landmark two_three;
+    two_three.innerTH = 0.40;
+    two_three.outerTH = 0.50;
+    two_three.landX = 0;
+    two_three.landY = 1.1;
+    two_three.signature = 2;
+    landmark_map[two_three.signature] = two_three;
 
-    Landmark landmark2;
-    landmark2.landmarkinnerthresh = 0.40;
-    landmark2.landmarkouterthresh = 0.50;
-    landmark2.groundtruth_X = 0;
-    landmark2.groundtruth_Y = 1.1;
-    landmark2.signature = 2;
+    Landmark one_one;
+    one_one.innerTH = 0.20;
+    one_one.outerTH = 0.30;
+    one_one.landX = -1.1;
+    one_one.landY = -1.1;
+    one_one.signature = 3;
+    landmark_map[one_one.signature] = one_one;
 
-    Landmark landmark3;
-    landmark3.landmarkinnerthresh = 0.20;
-    landmark3.landmarkouterthresh = 0.30;
-    landmark3.groundtruth_X = -1.1;
-    landmark3.groundtruth_Y = -1.1;
-    landmark3.signature = 3;
-
-    landmarkMap[landmark1.signature] = landmark1;
-    landmarkMap[landmark2.signature] = landmark2;
-    landmarkMap[landmark3.signature] = landmark3;
   }
 
   // cmd_vel callback function
@@ -208,8 +190,8 @@ public:
 {
   ++scanPrintCount;
   sensor_msgs::PointCloud2 cloud;
-    projector_.transformLaserScanToPointCloud("base_scan", *scan, cloud, tfListener_);
-    point_cloud_publisher_.publish(cloud);
+    laserProjection.transformLaserScanToPointCloud("base_scan", *scan, cloud, transformListener);
+    point_pub.publish(cloud);
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(cloud, *pcl_cloud);
 
@@ -228,11 +210,11 @@ public:
     poseArray.header.stamp = ros::Time::now();
     //poseArray.header.frame_id = "base_link";
 
-    for (const auto& landmarkPair : landmarkMap) {
+    for (const auto& landmarkPair : landmark_map) {
         ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Warn);  // Suppress Warning messages
         ros::console::notifyLoggerLevelsChanged();
         const Landmark& landmark = landmarkPair.second;
-        segmentation.setRadiusLimits(landmark.landmarkinnerthresh, landmark.landmarkouterthresh);
+        segmentation.setRadiusLimits(landmark.innerTH, landmark.outerTH);
 
         segmentation.segment(inlierIndices, *coefficients);
 
@@ -255,8 +237,8 @@ public:
         pose.position.x = x;
         pose.position.y = y;
         pose.position.z = landmark.signature;
-        pose.orientation.x = landmark.groundtruth_X;
-        pose.orientation.y = landmark.groundtruth_Y;
+        pose.orientation.x = landmark.landX;
+        pose.orientation.y = landmark.landY;
         pose.orientation.z = 0.0;
         pose.orientation.w = 1.0;
 
@@ -287,7 +269,7 @@ public:
     }
 
     // Publish the detected landmark poses as a single message
-    valuePub.publish(poseArray);
+    value_pub.publish(poseArray);
     poseArray.poses.clear();
     marker_pub2.publish(markerArray);
   
@@ -481,13 +463,12 @@ std::pair<Eigen::VectorXd, Eigen::MatrixXd> predict(const Eigen::Vector2d &ut, c
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "ekf_loc");
-  ros::NodeHandle nodeHandle;
-
+  ros::NodeHandle nodeHandle_sub;
   EKF_Loc ekf;
 
-  ros::Subscriber odom_sub = nodeHandle.subscribe<nav_msgs::Odometry>("/odom", 3000, std::bind(&EKF_Loc::odomCallback, &ekf, std::placeholders::_1));
-  ros::Subscriber scan_sub = nodeHandle.subscribe<sensor_msgs::LaserScan>("/scan", 500, std::bind(&EKF_Loc::scanCallback, &ekf, std::placeholders::_1));
-  ros::Subscriber cmd_vel_sub = nodeHandle.subscribe<geometry_msgs::Twist>("/cmd_vel", 1000, std::bind(&EKF_Loc::cmd_velCallback, &ekf, std::placeholders::_1));
+  ros::Subscriber odom_sub = nodeHandle_sub.subscribe<nav_msgs::Odometry>("/odom", 3000, std::bind(&EKF_Loc::odomCallback, &ekf, std::placeholders::_1));
+  ros::Subscriber scan_sub = nodeHandle_sub.subscribe<sensor_msgs::LaserScan>("/scan", 500, std::bind(&EKF_Loc::scanCallback, &ekf, std::placeholders::_1));
+  ros::Subscriber cmd_vel_sub = nodeHandle_sub.subscribe<geometry_msgs::Twist>("/cmd_vel", 1000, std::bind(&EKF_Loc::cmd_velCallback, &ekf, std::placeholders::_1));
 
   ros::spin();
 
