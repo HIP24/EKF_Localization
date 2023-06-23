@@ -205,6 +205,33 @@ public:
 {
 
 }
+std::pair<Eigen::VectorXd, Eigen::MatrixXd> predict(const Eigen::Vector2d &ut, const Eigen::VectorXd &mt_prev, const Eigen::MatrixXd &cov_prev)
+  {
+    std::cout << "Theta:\r\n " << theta << std::endl;
+    std::cout << "v:\r\n " << u_t(0) << std::endl;
+    std::cout << "w:\r\n " << u_t(1) << std::endl;
+    //std::cout << "A:\r\n " << A << std::endl;
+    //std::cout << "B:\r\n " << B << std::endl;
+
+    A.resize(3, 3);
+    A << 1, 0, -u_t[0] * delta_t * sin(theta),
+         0, 1, u_t[0]* delta_t * cos(theta),
+         0, 0, 1;
+
+    mt(0) += u_t[0] * delta_t * cos(theta);
+    mt(1) += u_t[0] * delta_t * sin(theta); 
+    mt(2) += u_t[1] * delta_t; 
+    mt(2) = std::atan2(std::sin(mt(2)), std::cos(mt(2)));
+
+    B.resize(3, 2);
+    B << u_t[0] * delta_t * cos(theta), 0,
+         u_t[0] * delta_t * sin(theta), 0,
+         0, u_t[1] * delta_t;
+
+    //mt = A * mt_prev + B * ut;              // prediction
+    cov = A * cov_prev * A.transpose() + R; // update error covariance
+    return std::make_pair(mt, cov);
+  }
 
   void poseEstimation()
 {
