@@ -78,6 +78,10 @@ private:
   ros::Publisher value_pub;
   ros::Publisher posePub;
   ros::Publisher marker_pub;
+  ros::Subscriber value_sub;
+
+  geometry_msgs::PoseArray poseArray;
+
 
   struct Landmark
   {
@@ -109,8 +113,8 @@ public:
         0, 0, pow(sigma_theta, 2);
 
     // initialize measurement noise
-    Q = pow(sigma, 2) * Eigen::Matrix2d::Identity();
-
+    Q.resize(3, 3);
+    Q = Eigen::Matrix<double, 3, 3>::Identity();
     // initialize nodeHandle for ekf_pose
     ros::NodeHandle nodeHandle_adv;
     posePub = nodeHandle_adv.advertise<geometry_msgs::PoseStamped>("/ekf_pose", 10);
@@ -118,6 +122,7 @@ public:
     point_pub = nodeHandle_adv.advertise<sensor_msgs::PointCloud2>("/cloud", 1000, false);
     marker_pub2 = nodeHandle_adv.advertise<visualization_msgs::MarkerArray>("detected_circles_markers", 1);
     value_pub = nodeHandle_adv.advertise<geometry_msgs::PoseArray>("circle_angle_range", 1);
+    value_sub = nodeHandle_adv.subscribe<geometry_msgs::PoseArray>("circle_angle_range", 1000, &EKF_Loc::valueCallback, this);
 
     Landmark three_one;
     three_one.innerTH = 0.30;
@@ -207,7 +212,7 @@ public:
     segmentation.setOptimizeCoefficients(true);
     visualization_msgs::MarkerArray markerArray;
     int markerId = 0;
-    geometry_msgs::PoseArray poseArray;
+    //geometry_msgs::PoseArray poseArray;
     poseArray.header.stamp = ros::Time::now();
 
     for (const auto &landmarkPair : landmark_map)
@@ -228,11 +233,11 @@ public:
       double y = coefficients->values[1];
       double radius = coefficients->values[2];
 
-      // std::cout << "Landmark: "<< landmark.signature << std::endl;
-      // std::cout << "x: "<< x << std::endl;
-      // std::cout << "y: " << y << std::endl;
-      // std::cout << "radius: " << radius << std::endl;
-      // std::cout << "-----" << std::endl;
+      //std::cout << "Landmark: "<< landmark.signature << std::endl;
+      //std::cout << "x: "<< x << std::endl;
+      //std::cout << "y: " << y << std::endl;
+      //std::cout << "radius: " << radius << std::endl;
+      //std::cout << "-----" << std::endl;
 
       // Calculate range and bearing measurements to the landmark
       double dx = x - robot_x;
@@ -246,9 +251,9 @@ public:
       // Add the correspondence variable to c_t
       c_t.push_back(std::to_string(landmark.signature));
       // Print out the contents of c_t
-      std::cout << "c_t: [";
-      std::copy(c_t.begin(), c_t.end(), std::ostream_iterator<std::string>(std::cout, ""));
-      std::cout << "]" << std::endl;
+      //std::cout << "c_t: [";
+      //std::copy(c_t.begin(), c_t.end(), std::ostream_iterator<std::string>(std::cout, ""));
+      //std::cout << "]" << std::endl;
 
       // Populate the detected landmark pose
       geometry_msgs::Pose pose;
@@ -261,6 +266,9 @@ public:
       pose.orientation.w = 1.0;
 
       poseArray.poses.push_back(pose);
+      //std::cout << "Added landmark to poseArray.poses" << std::endl;
+      //std::cout << "poseArray.poses.size() = " << poseArray.poses.size() << std::endl;
+
       visualization_msgs::Marker marker;
       marker.header.frame_id = "base_scan";
       marker.header.stamp = ros::Time::now();
@@ -335,19 +343,86 @@ public:
     setCov(newCov);
     ////std::cout << "\n\r############## After prediction ##############" << std::endl;
     printMtCov();
-    std::cout << "predicted" << std::endl;
+    //std::cout << "predicted" << std::endl;
   }
 
   void correctionStep()
   {
     // Call the correct method
-    correct(z_t, c_t);
+    //correct(z_t, c_t);
   }
 
-  void correct(const std::vector<std::pair<double, double>> &z_t, const std::vector<std::string> &c_t)
+
+void correct(const std::vector<geometry_msgs::Pose>& poses)
   {
-    std::cout << "corrected" << std::endl;
-  }
+    //std::cout << "corrected" << std::endl;
+
+    Eigen::Matrix<double, 3, 3> H_i;
+    Eigen::Matrix<double, 3, 3> K_i;
+    Eigen::Matrix<double, 3, 3> I = Eigen::Matrix<double, 3, 3>::Identity();
+
+    Eigen::VectorXd delta(2);
+    Eigen::VectorXd delta_(2);
+    Eigen::VectorXd z_hat_i(3);
+    Eigen::VectorXd z_i(3);
+    Eigen::VectorXd sum1(3);
+    Eigen::MatrixXd sum2(3,3);
+
+    sum1 << 0., 0., 0.;
+
+    sum2 << 0., 0., 0.,
+            0., 0., 0.,
+            0., 0., 0.;
+
+   
+    for (const auto &pose : poses)
+    {
+      //std::cout << "pose.position.x: " << pose.position.x << std::endl;
+      //std::cout << "pose.position.y: " << pose.position.y << std::endl;
+
+        delta(0) = pose.orientation.x-mt(0);
+        delta(1) = pose.orientation.y-mt(1);
+       
+        auto q =  delta.dot(delta);
+        z_hat_i[0] = sqrt(q);
+        z_hat_i[1] = atan2(delta(1), delta(0)) - mt(2);
+        z_hat_i[2] = pose.orientation.z;
+             
+        delta_(0) = pose.position.x;
+        delta_(1) = pose.position.y;
+        auto q_ = delta_.dot(delta_);
+        z_i[0] = sqrt(q_);
+        z_i[1] = atan2(delta_(1), delta_(0));
+        z_i[2] = pose.orientation.z;
+        
+
+        H_i(0,0) = -delta(0)/sqrt(q);
+        H_i(0,1) = -delta(1)/sqrt(q);
+        H_i(0,2) = 0;
+        H_i(1,0) = delta(1)/q;
+        H_i(1,1) = -delta(0)/q;
+        H_i(1,2) = -1;
+        H_i(2,0) = 0.;
+        H_i(2,1) = 0.;
+        H_i(2,2) = 0;
+        
+        K_i = cov * H_i.transpose() * (H_i * cov * H_i.transpose() +  Q).inverse();
+        sum1 += K_i * (z_i - z_hat_i);
+        sum2 += K_i * H_i;
+        
+
+    }
+     mt += sum1;
+     cov = (I - sum2) * cov;
+    }
+
+
+void valueCallback(const geometry_msgs::PoseArray::ConstPtr& msg) {
+    const std::vector<geometry_msgs::Pose>& poses = msg->poses;
+    correct(poses);
+}
+
+
 
   std::pair<Eigen::VectorXd, Eigen::MatrixXd> predict(const Eigen::Vector2d &ut, const Eigen::VectorXd &mt_prev, const Eigen::MatrixXd &cov_prev)
   {

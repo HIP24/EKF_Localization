@@ -60,7 +60,8 @@
         "bit": "cpp",
         "test": "cpp",
         "strstream": "cpp",
-        "cfenv": "cpp"
+        "cfenv": "cpp",
+        "numericaldiff": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }
