@@ -124,8 +124,8 @@ public:
     value_pub = nodeHandle_adv.advertise<geometry_msgs::PoseArray>("circle_angle_range", 1);
 
     Landmark three_one;
-    three_one.innerTH = 0.30;
-    three_one.outerTH = 0.40;
+    three_one.innerTH = 0.3;
+    three_one.outerTH = 0.4;
     three_one.landX = 1.1;
     three_one.landY = -1.1;
     three_one.signature = 1;
@@ -138,14 +138,14 @@ public:
     //two_three.landY = 1.1;
     //two_three.signature = 2;
     //landmark_map[two_three.signature] = two_three;
-//
-    //Landmark one_one;
-    //one_one.innerTH = 0.05;
-    //one_one.outerTH = 0.2;
-    //one_one.landX = -1.1;
-    //one_one.landY = -1.1;
-    //one_one.signature = 3;
-    //landmark_map[one_one.signature] = one_one;
+
+    Landmark one_three;
+    one_three.innerTH = 0.2;
+    one_three.outerTH = 0.3;
+    one_three.landX = -1.1;
+    one_three.landY = 1.1;
+    one_three.signature = 3;
+    landmark_map[one_three.signature] = one_three;
   }
 
   // cmd_vel callback function
@@ -235,44 +235,24 @@ public:
       double y = coefficients->values[1];
       double radius = coefficients->values[2];
 
-      //std::cout << "Landmark: "<< landmark.signature << std::endl;
-      //std::cout << "x: "<< x << std::endl;
-      //std::cout << "y: " << y << std::endl;
-      //std::cout << "radius: " << radius << std::endl;
-      //std::cout << "-----" << std::endl;
+      std::cout << "Landmark: "<< landmark.signature << std::endl;
+      std::cout << "x: "<< x << std::endl;
+      std::cout << "y: " << y << std::endl;
+      std::cout << "radius: " << radius << std::endl;
+      std::cout << "-----" << std::endl;
 
-      // Calculate range and bearing measurements to the landmark
-      double dx = x - mt(0);
-      double dy = y - mt(1);
-      double range = sqrt(dx * dx + dy * dy);
-      double bearing = atan2(dy, dx) - theta;
-
-       std::cout << "detected landmark: " <<landmark.signature << ", range: " << range << std::endl;
-
-      // Add the measurements to z_t
-      z_t.push_back(std::make_pair(range, bearing));
-
-      // Add the correspondence variable to c_t
-      c_t.push_back(std::to_string(landmark.signature));
-      // Print out the contents of c_t
-      //std::cout << "c_t: [";
-      //std::copy(c_t.begin(), c_t.end(), std::ostream_iterator<std::string>(std::cout, ""));
-      //std::cout << "]" << std::endl;
-
-  
+ 
       // Populate the detected landmark pose
       geometry_msgs::Pose pose;
-      pose.position.x = x;
-      pose.position.y = y;
+      pose.position.x = landmark.landX;
+      pose.position.y = landmark.landY;
       pose.position.z = landmark.signature;
-      pose.orientation.x = landmark.landX;
-      pose.orientation.y = landmark.landY;
+      pose.orientation.x = x;
+      pose.orientation.y = y;
       pose.orientation.z = 0.0;
       pose.orientation.w = 1.0;
 
       poseArray.poses.push_back(pose);
-      //std::cout << "Added landmark to poseArray.poses" << std::endl;
-      //std::cout << "poseArray.poses.size() = " << poseArray.poses.size() << std::endl;
 
       correct(poseArray.poses);
       printMtCov();
@@ -314,80 +294,68 @@ public:
   void printMtCov()
   {
     //std::cout << "Cov: " << std::endl << cov << std::endl;
-    std::cout << "Pose -> x = " << mt(0) << ", y = " << mt(1) << ", theta = " << mt(2) <<  std::endl;
+    //std::cout << "Pose: " << std::endl << mt << std::endl;
     //std::cout << "Robot's real position: (x = " << robot_x << ", y = " << robot_y << ")" << std::endl;
-    //std::cout << "Robot's estimated position: (x = " << mt(0) << ", y = " << mt(1) << ")" << std::endl;
+    std::cout << "Robot's estimated position: (x = " << mt(0) << ", y = " << mt(1) << ", theta = " << mt(2) <<")" << std::endl;
   }
 
-void correct(const std::vector<geometry_msgs::Pose>& poses)
+  void correct(const std::vector<geometry_msgs::Pose>& landmarks)
   {
     //std::cout << "corrected" << std::endl;
-
-    Eigen::Matrix<double, 3, 3> H_i;
-    Eigen::Matrix<double, 3, 3> K_i;
     Eigen::Matrix<double, 3, 3> I = Eigen::Matrix<double, 3, 3>::Identity();
+    Eigen::VectorXd mt_E(3);
+    Eigen::MatrixXd cov_E(3,3);
 
-    Eigen::VectorXd delta(2);
-    Eigen::VectorXd delta_(2);
-    Eigen::VectorXd z_hat_i(3);
-    Eigen::VectorXd z_i(3);
-    Eigen::VectorXd sum1(3);
-    Eigen::MatrixXd sum2(3,3);
+    mt_E << 0., 0., 0.;
 
-    sum1 << 0., 0., 0.;
-
-    sum2 << 0., 0., 0.,
+    cov_E << 0., 0., 0.,
             0., 0., 0.,
             0., 0., 0.;
 
    
-    for (const auto &pose : poses)
+    for (const auto &landmark : landmarks)
     {
-        //Location of landmark relative to map
-        //std::cout << "pose.orientation.x: " <<  pose.orientation.x << std::endl;
-        //std::cout << "pose.orientation.y: " <<  pose.orientation.y << std::endl;
-        ////Abstand Roboter und Landmark vom Roboter gesehen in robot frame
-        //std::cout << "pose.position.x: " << pose.position.x << std::endl;
-        //std::cout << "pose.position.y: " << pose.position.y << std::endl;
-        //Abstand Roboter und Landmark vom Roboter gesehen in map frame
-        delta(0) = pose.orientation.x-mt(0);
-        delta(1) = pose.orientation.y-mt(1);
-        //std::cout << "landmarkX-mt(0): " <<  delta(0) << std::endl;
-        //std::cout << "landmarkY-mt(1): " <<  delta(1) << std::endl;
-        
-        auto q =  delta.dot(delta);
-        z_hat_i[0] = sqrt(q);
-        z_hat_i[1] = atan2(delta(1), delta(0)) - mt(2);
-        z_hat_i[2] = pose.orientation.z;
-             
-        delta_(0) = pose.position.x;
-        delta_(1) = pose.position.y;
-        auto q_ = delta_.dot(delta_);
-        z_i[0] = sqrt(q_);
-        z_i[1] = atan2(delta_(1), delta_(0));
-        z_i[2] = pose.orientation.z;
+      double landX_map = landmark.position.x;
+      double landY_map = landmark.position.y;
+      double landX_turtle = landmark.orientation.x; 
+      double landY_turtle = landmark.orientation.y;
+      int signature = landmark.position.z;
 
-        H_i(0,0) = -delta(0)/sqrt(q);
-        H_i(0,1) = -delta(1)/sqrt(q);
-        H_i(0,2) = 0;
-        H_i(1,0) = delta(1)/q;
-        H_i(1,1) = -delta(0)/q;
-        H_i(1,2) = -1;
-        H_i(2,0) = 0.;
-        H_i(2,1) = 0.;
-        H_i(2,2) = 0;
+      // Real landmarks in map frame
+      Eigen::Vector2d delta;
+      delta << landX_map - mt(0),
+               landY_map - mt(1);
+      double q = delta.squaredNorm();
+      Eigen::Vector3d z_fake_i;
+      z_fake_i << sqrt(q),
+                 atan2(delta(1), delta(0)) - mt(2),
+                 signature;
+
+      // Observed landmarks in robot frame
+      Eigen::Vector2d delta_obs;
+      delta_obs << landX_turtle,
+                   landY_turtle;
+      double q_obs = delta_obs.squaredNorm();
+      Eigen::Vector3d z_i;
+      z_i << sqrt(q_obs),
+             atan2(delta_obs(1), delta_obs(0)),
+             signature;
+
+      Eigen::Matrix3d H_i;
+      H_i << -delta(0) / sqrt(q), -delta(1) / sqrt(q), 0,
+             delta(1) / q, -delta(0) / q, -1,
+             0, 0, 0;
+
         
-        K_i = cov * H_i.transpose() * (H_i * cov * H_i.transpose() +  Q).inverse();
-        sum1 += K_i * (z_i - z_hat_i);
-        sum2 += K_i * H_i;
-        
+      Eigen::Matrix3d K_i = cov * H_i.transpose() * (H_i * cov * H_i.transpose() + Q).inverse();
+      mt_E += K_i * (z_i - z_fake_i);
+      cov_E += K_i * H_i;    
     }
-     mt += sum1;
-     cov = (I - sum2) * cov;
+     mt += mt_E;
+     cov = (I - cov_E) * cov;
     }
 
-
- void predict()
+  void predict()
   {
     // std::cout << "Theta:\r\n " << theta << std::endl;
     // std::cout << "v:\r\n " << u_t(0) << std::endl;
@@ -504,6 +472,8 @@ void correct(const std::vector<geometry_msgs::Pose>& poses)
     // Publish the marker message
     marker_pub.publish(marker);
   }
+
+
 };
 
 int main(int argc, char **argv)

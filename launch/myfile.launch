@@ -52,7 +52,10 @@
     <node pkg="my_cool_project" type="Move_Turtlebot" name="Move_Turtlebot_node" output="screen" />
     <node pkg="my_cool_project" type="EKF_Loc" name="EKF_Loc_node" output="screen" launch-prefix="xterm -geometry 70x30 -fa 'Monospace' -fs 14 -e"/>
 
-  
-
-  
 </launch>
+
+
+
+
+
+
