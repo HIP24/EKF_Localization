@@ -33,7 +33,7 @@
 
     <!-- Load world -->
     <include>
-      <uri>model://turtlebot3_world</uri>
+      <uri>file:///home/halilpamuk24/catkin_ws/src/my_cool_project/turtlebot3_world</uri>
     </include>
 
     <scene>
