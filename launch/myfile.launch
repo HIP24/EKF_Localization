@@ -38,8 +38,8 @@
         <param name="DWAPlannerROS/min_vel_x" value="0.0" if="$(arg move_forward_only)" />
     <!-- Set additional parameters to reduce the maximum linear and angular velocities of the robot -->
     <!--<param name="DWAPlannerROS/max_vel_x" value="0.12"/>-->
-    <!--<param name="DWAPlannerROS/max_vel_theta" value="0.4"/>-->
-    <!--<param name="DWAPlannerROS/min_vel_theta" value="-0.4"/>-->
+    <param name="DWAPlannerROS/max_vel_theta" value="0.3"/>
+    <param name="DWAPlannerROS/min_vel_theta" value="-0.3"/>
     </node>
 
     <!-- Define a sequence of four points, will be included as ROS parameters and published as goals by the test node-->
@@ -50,7 +50,7 @@
 
     <!-- Start test node -->
     <node pkg="my_cool_project" type="Move_Turtlebot" name="Move_Turtlebot_node" output="screen" />
-    <node pkg="my_cool_project" type="EKF_Loc" name="EKF_Loc_node" output="screen" launch-prefix="xterm -geometry 70x30 -fa 'Monospace' -fs 14 -e"/>
+    <node pkg="my_cool_project" type="EKF_Loc" name="EKF_Loc_node" output="screen" launch-prefix="xterm -geometry 80x30 -fa 'Monospace' -fs 14 -e"/>
 
 </launch>
 

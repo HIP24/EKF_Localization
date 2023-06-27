@@ -1,46 +1,32 @@
 #include <ros/ros.h>
-#include <move_base_msgs/MoveBaseAction.h>
-#include <actionlib/client/simple_action_client.h>
-#include <nav_msgs/Odometry.h>
-#include <sensor_msgs/LaserScan.h>
 
-#include <nav_msgs/Odometry.h>
 #include <Eigen/Dense>
 
-#include <sensor_msgs/LaserScan.h>
 #include <vector>
 #include <map>
 #include <string>
 
+#include <geometry_msgs/PoseArray.h>
 #include <geometry_msgs/PoseStamped.h>
 
+#include <sensor_msgs/LaserScan.h>
+#include <sensor_msgs/PointCloud2.h>
+
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
+
+#include <nav_msgs/Odometry.h>
+
+#include <tf/transform_listener.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
-#include <visualization_msgs/Marker.h>
-
-#include <ros/ros.h>
-#include <tf/transform_listener.h>
 #include <laser_geometry/laser_geometry.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <sensor_msgs/LaserScan.h>
-#include <pcl_ros/point_cloud.h>
-// #include <pcl/sample_consensus/sac_model_circle3d.h>
-#include <pcl/sample_consensus/ransac.h>
-#include <pcl/sample_consensus/method_types.h>
-#include <pcl/sample_consensus/model_types.h>
-#include <pcl/segmentation/sac_segmentation.h>
-#include <visualization_msgs/MarkerArray.h>
-#include <geometry_msgs/Point.h>
-#include <geometry_msgs/PoseArray.h>
-#include <map>
 
-// Define counters
-int odomPrintCount = 0;
-int scanPrintCount = 0;
-int cmd_velPrintCount = 0;
-double robot_x, robot_y, robot_quat_z, robot_quat_w;
+#include <pcl_ros/point_cloud.h>
+#include <pcl/segmentation/sac_segmentation.h>
+
 
 class EKF_Loc
 {
@@ -55,14 +41,13 @@ private:
   Eigen::MatrixXd A;
   Eigen::MatrixXd B;
   Eigen::MatrixXd R;
-
   Eigen::MatrixXd Q;
 
   double roll, pitch, yaw;
+  double robot_x, robot_y, robot_quat_z, robot_quat_w;
 
   double theta = 0;
   double delta_t = 0.1; // time step
-  double sigma = 0.1;   // noise standard deviation
   double sigma_x = 0.1;
   double sigma_y = 0.1;
   double sigma_theta = 0.1;
@@ -72,18 +57,19 @@ private:
   double sigma_theta0 = 0.1;
 
   laser_geometry::LaserProjection laserProjection;
+
+  geometry_msgs::PoseStamped turtle_pose;
+  visualization_msgs::Marker turtle_cov;
+  visualization_msgs::Marker landmark_shape;
+
   tf::TransformListener transformListener;
-  ros::Publisher point_pub;
-  ros::Publisher marker_pub2;
-  ros::Publisher value_pub;
-  ros::Publisher posePub;
-  ros::Publisher marker_pub;
-  ros::Subscriber value_sub;
+  ros::Publisher point_cloud_pub;
+  ros::Publisher landmark_shape_pub;
+  ros::Publisher landmark_pose_pub;
+  ros::Publisher turtle_pose_pub;
+  ros::Publisher turtle_cov_pub;
 
-  geometry_msgs::PoseArray poseArray;
-
-
-  struct Landmark
+   struct Landmark
   {
     double innerTH;
     double outerTH;
@@ -115,43 +101,24 @@ public:
     // initialize measurement noise
     Q.resize(3, 3);
     Q = Eigen::Matrix<double, 3, 3>::Identity();
+
     // initialize nodeHandle for ekf_pose
     ros::NodeHandle nodeHandle_adv;
-    posePub = nodeHandle_adv.advertise<geometry_msgs::PoseStamped>("/ekf_pose", 10);
-    marker_pub = nodeHandle_adv.advertise<visualization_msgs::Marker>("/ellipse", 10);
-    point_pub = nodeHandle_adv.advertise<sensor_msgs::PointCloud2>("/cloud", 1000, false);
-    marker_pub2 = nodeHandle_adv.advertise<visualization_msgs::MarkerArray>("detected_circles_markers", 1);
-    value_pub = nodeHandle_adv.advertise<geometry_msgs::PoseArray>("circle_angle_range", 1);
+    turtle_pose_pub = nodeHandle_adv.advertise<geometry_msgs::PoseStamped>("/turtle_pose", 10);
+    turtle_cov_pub = nodeHandle_adv.advertise<visualization_msgs::Marker>("/turtle_cov", 10);
+    point_cloud_pub = nodeHandle_adv.advertise<sensor_msgs::PointCloud2>("/point_cloud", 1000, false);
+    landmark_shape_pub = nodeHandle_adv.advertise<visualization_msgs::MarkerArray>("landmark_shape", 10);
+    landmark_pose_pub = nodeHandle_adv.advertise<geometry_msgs::PoseArray>("landmark_pose", 10);
 
-    Landmark three_one;
-    three_one.innerTH = 0.3;
-    three_one.outerTH = 0.4;
-    three_one.landX = 1.1;
-    three_one.landY = -1.1;
-    three_one.signature = 1;
-    landmark_map[three_one.signature] = three_one;
+    // Create two Landmark objects [innerTH, outerTH, landX, landY, signature]
+    landmark_map[1] = {0.3, 0.4, 1.1, -1.1, 1};
+    landmark_map[3] = {0.2, 0.3, -1.1, 1.1, 3};
 
-    //Landmark two_three;
-    //two_three.innerTH = 0.10;
-    //two_three.outerTH = 0.30;
-    //two_three.landX = 0;
-    //two_three.landY = 1.1;
-    //two_three.signature = 2;
-    //landmark_map[two_three.signature] = two_three;
-
-    Landmark one_three;
-    one_three.innerTH = 0.2;
-    one_three.outerTH = 0.3;
-    one_three.landX = -1.1;
-    one_three.landY = 1.1;
-    one_three.signature = 3;
-    landmark_map[one_three.signature] = one_three;
   }
 
   // cmd_vel callback function
   void cmd_velCallback(const geometry_msgs::Twist::ConstPtr &commandMsg)
   {
-    ++cmd_velPrintCount;
     double v = commandMsg->linear.x;
     // Forward velocity
     double w = commandMsg->angular.z;
@@ -159,26 +126,18 @@ public:
     u_t << v, w;
     predict();
     printMtCov();
-    publishPose();
-    publishCovarianceEllipse();
+    publishTurtlePose();
+    publishTurtleCovarianceEllipse();
   }
 
   // odom callback function
   void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
-  { // //std::cout << "odomPrintCount: " << odomPrintCount << std::endl;
-    // //std::cout << "Received odom: (" << *msg << ")" << std::endl;
-    ++odomPrintCount;
-
+  { 
     // Update the robot's x and y coordinates
     robot_x = msg->pose.pose.position.x;
     robot_y = msg->pose.pose.position.y;
-
-    // Update the robot's orientation quaternion (z and w components)
-    // robot_quat_x = msg->pose.pose.orientation.x;
-    // robot_quat_y = msg->pose.pose.orientation.y;
     robot_quat_z = msg->pose.pose.orientation.z;
     robot_quat_w = msg->pose.pose.orientation.w;
-    // //std::cout << "Robot's position: (" << robot_x << ", " << robot_y << ")" << std::endl;
 
     // Convert robot's orientation quaternion to yaw angle
     tf2::Quaternion q;
@@ -196,106 +155,77 @@ public:
   // scan callback function
   void scanCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
   {
-    ++scanPrintCount;
+    visualization_msgs::MarkerArray landmark_shapes;
+    geometry_msgs::PoseArray landmark_poses;
+    landmark_poses.header.stamp = ros::Time::now();
+
     sensor_msgs::PointCloud2 cloud;
     laserProjection.transformLaserScanToPointCloud("base_scan", *scan, cloud, transformListener);
-    point_pub.publish(cloud);
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(cloud, *pcl_cloud);
 
+    // Thanks to https://pointclouds.org/documentation/tutorials/planar_segmentation.html
     pcl::PointIndices inlierIndices;
     pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
-    pcl::SACSegmentation<pcl::PointXYZ> segmentation;
-    segmentation.setInputCloud(pcl_cloud);
-    segmentation.setMaxIterations(1000000);
-    segmentation.setModelType(pcl::SACMODEL_CIRCLE2D);
-    segmentation.setMethodType(pcl::SAC_RANSAC);
-    segmentation.setDistanceThreshold(0.5);
-    segmentation.setOptimizeCoefficients(true);
-    visualization_msgs::MarkerArray markerArray;
-    int markerId = 0;
-    //geometry_msgs::PoseArray poseArray;
-    poseArray.header.stamp = ros::Time::now();
+    pcl::SACSegmentation<pcl::PointXYZ> seg;
 
-    for (const auto &landmarkPair : landmark_map)
+    // Optional
+    seg.setOptimizeCoefficients(true);
+    seg.setDistanceThreshold(0.5);
+    seg.setMaxIterations(100000000);
+
+    // Required
+    seg.setMethodType(pcl::SAC_RANSAC);
+    seg.setModelType(pcl::SACMODEL_CIRCLE2D);
+    seg.setInputCloud(pcl_cloud);
+
+    for (const auto &landmark_map_element : landmark_map)
     {
-      ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Warn); // Suppress Warning messages
-      ros::console::notifyLoggerLevelsChanged();
-      const Landmark &landmark = landmarkPair.second;
-      segmentation.setRadiusLimits(landmark.innerTH, landmark.outerTH);
+      const Landmark &landmark = landmark_map_element.second;
+      seg.setRadiusLimits(landmark.innerTH, landmark.outerTH);
+      seg.segment(inlierIndices, *coefficients);
 
-      segmentation.segment(inlierIndices, *coefficients);
-
-      if (inlierIndices.indices.size() == 0)
+      if (!inlierIndices.indices.size() == 0)
       {
-        continue;
-      }
-
-      double x = coefficients->values[0];
-      double y = coefficients->values[1];
-      double radius = coefficients->values[2];
+      double robotXtoLM = coefficients->values[0];
+      double robotYtoLM = coefficients->values[1];
+      double landmark_radius = coefficients->values[2];
 
       std::cout << "Landmark: "<< landmark.signature << std::endl;
-      std::cout << "x: "<< x << std::endl;
-      std::cout << "y: " << y << std::endl;
-      std::cout << "radius: " << radius << std::endl;
+      std::cout << "robotXtoLM: "<< robotXtoLM << std::endl;
+      std::cout << "robotYtoLM: " << robotYtoLM << std::endl;
+      std::cout << "landmark_radius: " << landmark_radius << std::endl;
       std::cout << "-----" << std::endl;
 
- 
-      // Populate the detected landmark pose
-      geometry_msgs::Pose pose;
-      pose.position.x = landmark.landX;
-      pose.position.y = landmark.landY;
-      pose.position.z = landmark.signature;
-      pose.orientation.x = x;
-      pose.orientation.y = y;
-      pose.orientation.z = 0.0;
-      pose.orientation.w = 1.0;
+      geometry_msgs::Pose landmark_pose = populateLandmarkPose(landmark, robotXtoLM, robotYtoLM);
+      landmark_poses.poses.push_back(landmark_pose);
 
-      poseArray.poses.push_back(pose);
-
-      correct(poseArray.poses);
+      correct(landmark_poses.poses);
       printMtCov();
-      publishPose();
-      publishCovarianceEllipse();
+      publishTurtlePose();
+      publishTurtleCovarianceEllipse();
 
-      visualization_msgs::Marker marker;
-      marker.header.frame_id = "base_scan";
-      marker.header.stamp = ros::Time::now();
-      marker.ns = "circles";
-      marker.id = markerId++;
-      marker.type = visualization_msgs::Marker::CYLINDER;
-      marker.action = visualization_msgs::Marker::ADD;
-      marker.pose.position.x = x;
-      marker.pose.position.y = y;
-      marker.pose.position.z = 0.0;
-      marker.pose.orientation.x = 0.0;
-      marker.pose.orientation.y = 0.0;
-      marker.pose.orientation.z = 0.0;
-      marker.pose.orientation.w = 1.0;
-      marker.scale.x = radius * 2;
-      marker.scale.y = radius * 2;
-      marker.scale.z = 0.01;
-      marker.color.a = 1.0;
-      marker.color.r = 1.0;
-      marker.color.g = 0.0;
-      marker.color.b = 0.0;
-
-      markerArray.markers.push_back(marker);
+      int markerId = 0;
+      landmark_shape = publishLandmarkPose(markerId++, robotXtoLM, robotYtoLM, landmark_radius);
+      landmark_shapes.markers.push_back(landmark_shape);
+      }
       
+      else  continue;
+
+
     }
 
     // Publish the detected landmark poses as a single message
-    value_pub.publish(poseArray);
-    poseArray.poses.clear();
-    marker_pub2.publish(markerArray);
+    landmark_pose_pub.publish(landmark_poses);
+    landmark_poses.poses.clear();
+    landmark_shape_pub.publish(landmark_shapes);
   }
 
   void printMtCov()
   {
     //std::cout << "Cov: " << std::endl << cov << std::endl;
     //std::cout << "Pose: " << std::endl << mt << std::endl;
-    //std::cout << "Robot's real position: (x = " << robot_x << ", y = " << robot_y << ")" << std::endl;
+    std::cout << "Robot's real position: (x = " << robot_x << ", y = " << robot_y << ")" << std::endl;
     std::cout << "Robot's estimated position: (x = " << mt(0) << ", y = " << mt(1) << ", theta = " << mt(2) <<")" << std::endl;
   }
 
@@ -325,7 +255,7 @@ public:
       Eigen::Vector2d delta;
       delta << landX_map - mt(0),
                landY_map - mt(1);
-      double q = delta.squaredNorm();
+      double q = delta.transpose() * delta;
       Eigen::Vector3d z_fake_i;
       z_fake_i << sqrt(q),
                  atan2(delta(1), delta(0)) - mt(2),
@@ -335,7 +265,7 @@ public:
       Eigen::Vector2d delta_obs;
       delta_obs << landX_turtle,
                    landY_turtle;
-      double q_obs = delta_obs.squaredNorm();
+      double q_obs = delta_obs.transpose() * delta_obs ;
       Eigen::Vector3d z_i;
       z_i << sqrt(q_obs),
              atan2(delta_obs(1), delta_obs(0)),
@@ -383,17 +313,15 @@ public:
    
   }
 
-  void publishPose()
+  void publishTurtlePose()
   {
-    geometry_msgs::PoseStamped poseMsg;
-
     // Set the frame ID and timestamp
-    poseMsg.header.frame_id = "map";
-    poseMsg.header.stamp = ros::Time::now();
+    turtle_pose.header.frame_id = "map";
+    turtle_pose.header.stamp = ros::Time::now();
 
     // Set the pose data
-    poseMsg.pose.position.x = mt(0);
-    poseMsg.pose.position.y = mt(1);
+    turtle_pose.pose.position.x = mt(0);
+    turtle_pose.pose.position.y = mt(1);
 
     double roll = 0;
     double pitch = 0;
@@ -408,17 +336,13 @@ public:
     quat_msg.z = q.z();
     quat_msg.w = q.w();
 
-    poseMsg.pose.orientation = quat_msg;
-
-    // tf2::Quaternion quat;
-    // quat.setRPY(0, 0, yaw);
-    // poseMsg.pose.orientation = tf2::toMsg(quat);
+    turtle_pose.pose.orientation = quat_msg;
 
     // Publish the pose
-    posePub.publish(poseMsg);
+    turtle_pose_pub.publish(turtle_pose);
   }
 
-  void publishCovarianceEllipse()
+  void publishTurtleCovarianceEllipse()
   {
     // Compute the eigenvalues and eigenvectors of the covariance matrix
     Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solver(cov.block<2, 2>(0, 0));
@@ -430,17 +354,16 @@ public:
     double a = sqrt(eigenvalues(0));
     double b = sqrt(eigenvalues(1));
 
-    // Create a marker message to represent the ellipse
-    visualization_msgs::Marker marker;
-    marker.header.frame_id = "map";
-    marker.header.stamp = ros::Time::now();
-    marker.ns = "ellipse";
-    marker.id = 0;
-    marker.type = visualization_msgs::Marker::CYLINDER;
-    marker.action = visualization_msgs::Marker::ADD;
-    marker.pose.position.x = mt(0);
-    marker.pose.position.y = mt(1);
-    marker.pose.position.z = 0;
+    // Create a turtle_cov message to represent the ellipse
+    turtle_cov.header.frame_id = "map";
+    turtle_cov.header.stamp = ros::Time::now();
+    turtle_cov.ns = "ellipse";
+    turtle_cov.id = 0;
+    turtle_cov.type = visualization_msgs::Marker::CYLINDER;
+    turtle_cov.action = visualization_msgs::Marker::ADD;
+    turtle_cov.pose.position.x = mt(0);
+    turtle_cov.pose.position.y = mt(1);
+    turtle_cov.pose.position.z = 0;
 
     double roll = 0;
     double pitch = 0;
@@ -455,24 +378,56 @@ public:
     quat_msg.z = q.z();
     quat_msg.w = q.w();
 
-    marker.pose.orientation = quat_msg;
+    turtle_cov.pose.orientation = quat_msg;
 
-    // tf2::Quaternion quat;
-    // quat.setRPY(0, 0, angle);
-    // marker.pose.orientation = tf2::toMsg(quat);
+    turtle_cov.scale.x = a * 2;
+    turtle_cov.scale.y = b * 2;
+    turtle_cov.scale.z = 0.1;
+    turtle_cov.color.a = 0.5;
+    turtle_cov.color.r = 1.0;
+    turtle_cov.color.g = 0.0;
+    turtle_cov.color.b = 0.0;
 
-    marker.scale.x = a * 2;
-    marker.scale.y = b * 2;
-    marker.scale.z = 0.1;
-    marker.color.a = 0.5;
-    marker.color.r = 1.0;
-    marker.color.g = 0.0;
-    marker.color.b = 0.0;
-
-    // Publish the marker message
-    marker_pub.publish(marker);
+    // Publish the turtle_cov message
+    turtle_cov_pub.publish(turtle_cov);
   }
 
+  geometry_msgs::Pose populateLandmarkPose(const Landmark& landmark, double robotXtoLM, double robotYtoLM)
+{
+    geometry_msgs::Pose landmark_pose;
+    landmark_pose.position.x = landmark.landX;
+    landmark_pose.position.y = landmark.landY;
+    landmark_pose.position.z = landmark.signature;
+    landmark_pose.orientation.x = robotXtoLM;
+    landmark_pose.orientation.y = robotYtoLM;
+    landmark_pose.orientation.z = 0;
+    landmark_pose.orientation.w = 1;
+    return landmark_pose;
+}
+
+  visualization_msgs::Marker publishLandmarkPose(int markerId, double robotXtoLM, double robotYtoLM, double landmark_radius)
+{
+    visualization_msgs::Marker landmark_shape;
+    landmark_shape.header.frame_id = "base_scan";
+    landmark_shape.header.stamp = ros::Time::now();
+    landmark_shape.ns = "landmarks";
+    landmark_shape.id = markerId;
+    landmark_shape.type = visualization_msgs::Marker::CYLINDER;
+    landmark_shape.action = visualization_msgs::Marker::ADD;
+    landmark_shape.pose.position.x = robotXtoLM;
+    landmark_shape.pose.position.y = robotYtoLM;
+    landmark_shape.pose.position.z = 0;
+    landmark_shape.pose.orientation.x = 0;
+    landmark_shape.pose.orientation.y = 0;
+    landmark_shape.pose.orientation.z = 0;
+    landmark_shape.pose.orientation.w = 1;
+    landmark_shape.scale.x = 2 * landmark_radius;
+    landmark_shape.scale.y = 2 * landmark_radius;
+    landmark_shape.scale.z = 0.5;
+    landmark_shape.color.a = 1;
+    landmark_shape.color.b = 1;
+    return landmark_shape;
+}
 
 };
 
