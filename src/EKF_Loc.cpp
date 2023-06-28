@@ -35,40 +35,40 @@ private:
   std::vector<std::pair<double, double>> z_t; // Each pair is <range, angle>
   std::vector<std::string> c_t;
 
+  // State and covariance of the turtlebot
   Eigen::VectorXd mt;
   Eigen::MatrixXd cov;
+  double sigma_x_cov = 0.1;
+  double sigma_y_cov = 0.1;
+  double sigma_theta_cov = 0.1;
 
+  // Matrices for prediction and correction
   Eigen::MatrixXd A;
-  Eigen::MatrixXd B;
   Eigen::MatrixXd R;
   Eigen::MatrixXd Q;
+  double sigma_x_R = 0.1;
+  double sigma_y_R = 0.1;
+  double sigma_theta_R = 0.1;
+  double theta = 0;
+  double delta_t = 0.1;
 
+  // Position and orientation of the turtlebot
   double roll, pitch, yaw;
   double robot_x, robot_y, robot_quat_z, robot_quat_w;
 
-  double theta = 0;
-  double delta_t = 0.1; // time step
-  double sigma_x = 0.1;
-  double sigma_y = 0.1;
-  double sigma_theta = 0.1;
-
-  double sigma_x0 = 0.1;
-  double sigma_y0 = 0.1;
-  double sigma_theta0 = 0.1;
-
-  laser_geometry::LaserProjection laserProjection;
-
+  // Messages
   geometry_msgs::PoseStamped turtle_pose;
   visualization_msgs::Marker turtle_cov;
   visualization_msgs::Marker landmark_shape;
 
-  tf::TransformListener transformListener;
+  // Publishers
   ros::Publisher point_cloud_pub;
   ros::Publisher landmark_shape_pub;
   ros::Publisher landmark_pose_pub;
   ros::Publisher turtle_pose_pub;
   ros::Publisher turtle_cov_pub;
 
+  // Landmark struct 
    struct Landmark
   {
     double innerTH;
@@ -77,32 +77,33 @@ private:
     double landY;
     int signature;
   };
+  // Landmark map 
   std::map<int, Landmark> landmark_map;
 
 public:
   EKF_Loc()
   {
-    // initialize with the initial pose [x, y, theta, v, omega]
+    // Initialize with the initial pose mt [x, y, theta]
     mt.resize(3);
     mt << -2, -0.5, 0;
 
-    // Initialize initial covariance
+    // Initialize initial covariance cov
     cov.resize(3, 3);
-    cov << pow(sigma_x0, 2), 0, 0,
-        0, pow(sigma_y0, 2), 0,
-        0, 0, pow(sigma_theta0, 2);
+    cov << pow(sigma_x_cov, 2), 0, 0,
+        0, pow(sigma_y_cov, 2), 0,
+        0, 0, pow(sigma_theta_cov, 2);
 
-    // initialize process noise
+    // Initialize process noise R
     R.resize(3, 3);
-    R << pow(sigma_x, 2), 0, 0,
-        0, pow(sigma_y, 2), 0,
-        0, 0, pow(sigma_theta, 2);
+    R << pow(sigma_x_R, 2), 0, 0,
+        0, pow(sigma_y_R, 2), 0,
+        0, 0, pow(sigma_theta_R, 2);
 
-    // initialize measurement noise
+    // Initialize measurement noise Q
     Q.resize(3, 3);
     Q = Eigen::Matrix<double, 3, 3>::Identity();
 
-    // initialize nodeHandle for ekf_pose
+    // Initialize nodeHandle for ekf_pose
     ros::NodeHandle nodeHandle_adv;
     turtle_pose_pub = nodeHandle_adv.advertise<geometry_msgs::PoseStamped>("/turtle_pose", 10);
     turtle_cov_pub = nodeHandle_adv.advertise<visualization_msgs::Marker>("/turtle_cov", 10);
@@ -113,24 +114,30 @@ public:
     // Create two Landmark objects [innerTH, outerTH, landX, landY, signature]
     landmark_map[1] = {0.3, 0.4, 1.1, -1.1, 1};
     landmark_map[3] = {0.2, 0.3, -1.1, 1.1, 3};
-
   }
 
-  // cmd_vel callback function
+  /*This function is the callback for the /cmd_vel topic. It receives the linear 
+  and angular velocity commands for the turtlebot and updates the control input (u_t). 
+  It then calls the predict() function to perform the prediction step of the Extended 
+  Kalman Filter (EKF), updates the turtle's pose, and publishes the pose and covariance.*/
   void cmd_velCallback(const geometry_msgs::Twist::ConstPtr &commandMsg)
   {
-    double v = commandMsg->linear.x;
     // Forward velocity
-    double w = commandMsg->angular.z;
+    double v = commandMsg->linear.x;
     // Rotational velocity
+    double w = commandMsg->angular.z;
+    // Updae the control input
     u_t << v, w;
+
     predict();
     printMtCov();
     publishTurtlePose();
     publishTurtleCovarianceEllipse();
   }
 
-  // odom callback function
+  /*This function is the callback for the /odom topic. It receives the odometry data for the 
+  turtlebot and extracts the robot's position and orientation. These values are extracted
+  only to compare them to the estimated pose. */
   void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
   { 
     // Update the robot's x and y coordinates
@@ -152,22 +159,33 @@ public:
     theta = yaw;
   }
 
-  // scan callback function
+  /*This function is the callback for the /scan topic. It receives laser scan data, converts it
+   to a point cloud, and performs circle fitting using the RANSAC algorithm to detect landmarks. 
+   For each detected landmark, it calculates the position in the map frame and calls the correct() 
+   function to update the turtle's pose estimation. It also publishes the detected landmark poses 
+   and shapes.*/
   void scanCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
   {
-    visualization_msgs::MarkerArray landmark_shapes;
+    // MarkerArray message to store the landmark shapes
+    visualization_msgs::MarkerArray landmark_shapes; 
+    // PoseArray message to store the landmark poses
     geometry_msgs::PoseArray landmark_poses;
-    landmark_poses.header.stamp = ros::Time::now();
-
-    sensor_msgs::PointCloud2 cloud;
-    laserProjection.transformLaserScanToPointCloud("base_scan", *scan, cloud, transformListener);
+    landmark_poses.header.stamp = ros::Time::now();     
+    //PointCloud2 message to store the point cloud data
+    sensor_msgs::PointCloud2 point_cloud; 
+    //LaserProjection object to project laser scans into point clouds
+    laser_geometry::LaserProjection laserProjection; 
+    tf::TransformListener transformListener;
+    laserProjection.transformLaserScanToPointCloud("base_scan", *scan, point_cloud, transformListener); 
+    
+    // Convert the point_cloud message into a PCL point cloud
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::fromROSMsg(cloud, *pcl_cloud);
+    pcl::fromROSMsg(point_cloud, *pcl_cloud); 
 
-    // Thanks to https://pointclouds.org/documentation/tutorials/planar_segmentation.html
-    pcl::PointIndices inlierIndices;
-    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
-    pcl::SACSegmentation<pcl::PointXYZ> seg;
+    // Object detection thanks to https://pointclouds.org/documentation/tutorials/planar_segmentation.html
+    pcl::PointIndices::Ptr inliers (new pcl::PointIndices); 
+    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients); 
+    pcl::SACSegmentation<pcl::PointXYZ> seg; 
 
     // Optional
     seg.setOptimizeCoefficients(true);
@@ -179,13 +197,15 @@ public:
     seg.setModelType(pcl::SACMODEL_CIRCLE2D);
     seg.setInputCloud(pcl_cloud);
 
+    // For each detected landmark...
     for (const auto &landmark_map_element : landmark_map)
     {
       const Landmark &landmark = landmark_map_element.second;
       seg.setRadiusLimits(landmark.innerTH, landmark.outerTH);
-      seg.segment(inlierIndices, *coefficients);
+      seg.segment(*inliers, *coefficients);
 
-      if (!inlierIndices.indices.size() == 0)
+      // If landmark detected...
+      if (!inliers->indices.size() == 0)
       {
       double robotXtoLM = coefficients->values[0];
       double robotYtoLM = coefficients->values[1];
@@ -209,18 +229,17 @@ public:
       landmark_shape = publishLandmarkPose(markerId++, robotXtoLM, robotYtoLM, landmark_radius);
       landmark_shapes.markers.push_back(landmark_shape);
       }
-      
       else  continue;
-
-
     }
 
-    // Publish the detected landmark poses as a single message
+    // Publish the detected landmark_poses and landmark_shapes
     landmark_pose_pub.publish(landmark_poses);
     landmark_poses.poses.clear();
     landmark_shape_pub.publish(landmark_shapes);
   }
 
+  /*This function prints the turtle's estimated position (mt) and covariance (cov) to the console. 
+  It also prints the real position of the robot (robot_x and robot_y) from odometry data.*/
   void printMtCov()
   {
     //std::cout << "Cov: " << std::endl << cov << std::endl;
@@ -229,20 +248,25 @@ public:
     std::cout << "Robot's estimated position: (x = " << mt(0) << ", y = " << mt(1) << ", theta = " << mt(2) <<")" << std::endl;
   }
 
+  /*This function performs the correction step of the EKF. It takes a vector of detected landmark poses 
+  as input and updates the turtle's pose estimation (mt) and covariance (cov) based on the measurement 
+  information. It uses the difference between the observed and predicted landmark positions to calculate 
+  the Kalman gain and update the pose estimation. */
   void correct(const std::vector<geometry_msgs::Pose>& landmarks)
   {
-    //std::cout << "corrected" << std::endl;
     Eigen::Matrix<double, 3, 3> I = Eigen::Matrix<double, 3, 3>::Identity();
     Eigen::VectorXd mt_E(3);
     Eigen::MatrixXd cov_E(3,3);
 
+    // Sum for mt
     mt_E << 0., 0., 0.;
 
+    // Sum for cov
     cov_E << 0., 0., 0.,
             0., 0., 0.,
             0., 0., 0.;
 
-   
+    // For every landmark...
     for (const auto &landmark : landmarks)
     {
       double landX_map = landmark.position.x;
@@ -256,8 +280,8 @@ public:
       delta << landX_map - mt(0),
                landY_map - mt(1);
       double q = delta.transpose() * delta;
-      Eigen::Vector3d z_fake_i;
-      z_fake_i << sqrt(q),
+      Eigen::Vector3d z_exp_i;
+      z_exp_i << sqrt(q),
                  atan2(delta(1), delta(0)) - mt(2),
                  signature;
 
@@ -276,15 +300,18 @@ public:
              delta(1) / q, -delta(0) / q, -1,
              0, 0, 0;
 
-        
       Eigen::Matrix3d K_i = cov * H_i.transpose() * (H_i * cov * H_i.transpose() + Q).inverse();
-      mt_E += K_i * (z_i - z_fake_i);
+      mt_E += K_i * (z_i - z_exp_i);
       cov_E += K_i * H_i;    
     }
+    // Update mt and cov
      mt += mt_E;
      cov = (I - cov_E) * cov;
     }
 
+  /*This function performs the prediction step of the EKF Localization. It updates the turtle's pose estimation (mt) and 
+  covariance (cov) based on the control input (u_t) and the system dynamics. It calculates the state transition
+  matrix (A) and control input matrix (B) and updates the pose estimation and covariance using the motion model.*/
   void predict()
   {
     // std::cout << "Theta:\r\n " << theta << std::endl;
@@ -298,28 +325,24 @@ public:
         0, 1, u_t[0] * delta_t * cos(theta),
         0, 0, 1;
 
+    // Update the estimated state
     mt(0) += u_t[0] * delta_t * cos(theta);
     mt(1) += u_t[0] * delta_t * sin(theta);
     mt(2) += u_t[1] * delta_t;
     mt(2) = std::atan2(std::sin(mt(2)), std::cos(mt(2)));
 
-    B.resize(3, 2);
-    B << u_t[0] * delta_t * cos(theta), 0,
-        u_t[0] * delta_t * sin(theta), 0,
-        0, u_t[1] * delta_t;
-
-    // mt = A * mt_prev + B * ut;              // prediction
+    // Update the covariance
     cov = A * cov * A.transpose() + R; // update error covariance
    
   }
 
+  /*This function publishes the turtle's estimated pose (mt) as a geometry_msgs::PoseStamped message on 
+  the /turtle_pose topic. It sets the position and orientation of the turtle's pose and publishes the message.*/
   void publishTurtlePose()
   {
-    // Set the frame ID and timestamp
+    // Fill turtle_pose message to represent the pose
     turtle_pose.header.frame_id = "map";
     turtle_pose.header.stamp = ros::Time::now();
-
-    // Set the pose data
     turtle_pose.pose.position.x = mt(0);
     turtle_pose.pose.position.y = mt(1);
 
@@ -338,10 +361,13 @@ public:
 
     turtle_pose.pose.orientation = quat_msg;
 
-    // Publish the pose
+    // Publish the turtle_pose message
     turtle_pose_pub.publish(turtle_pose);
   }
 
+  /*This function publishes the covariance ellipse of the turtle's pose as a visualization_msgs::Marker message on 
+  the /turtle_cov topic. It computes the eigenvalues and eigenvectors of the covariance matrix and determines the 
+  orientation and size of the ellipse. It then publishes the marker representing the covariance ellipse.*/
   void publishTurtleCovarianceEllipse()
   {
     // Compute the eigenvalues and eigenvectors of the covariance matrix
@@ -354,7 +380,7 @@ public:
     double a = sqrt(eigenvalues(0));
     double b = sqrt(eigenvalues(1));
 
-    // Create a turtle_cov message to represent the ellipse
+    // Fill turtle_cov message to represent the ellipse
     turtle_cov.header.frame_id = "map";
     turtle_cov.header.stamp = ros::Time::now();
     turtle_cov.ns = "ellipse";
@@ -367,7 +393,7 @@ public:
 
     double roll = 0;
     double pitch = 0;
-    double yaw = mt(2); // your yaw angle in radians
+    double yaw = mt(2); 
 
     tf2::Quaternion q;
     q.setRPY(roll, pitch, yaw);
@@ -380,9 +406,10 @@ public:
 
     turtle_cov.pose.orientation = quat_msg;
 
+    // Scale and colorize the landmark
     turtle_cov.scale.x = a * 2;
     turtle_cov.scale.y = b * 2;
-    turtle_cov.scale.z = 0.1;
+    turtle_cov.scale.z = 0.01;
     turtle_cov.color.a = 0.5;
     turtle_cov.color.r = 1.0;
     turtle_cov.color.g = 0.0;
@@ -392,6 +419,8 @@ public:
     turtle_cov_pub.publish(turtle_cov);
   }
 
+  /*This function returns the pose of a landmark based on its distance from the robot 
+  (robotXtoLM and robotYtoLM) and the provided Landmark object.*/
   geometry_msgs::Pose populateLandmarkPose(const Landmark& landmark, double robotXtoLM, double robotYtoLM)
 {
     geometry_msgs::Pose landmark_pose;
@@ -405,6 +434,9 @@ public:
     return landmark_pose;
 }
 
+  /*This function publishes the pose of a landmark as a marker on the specified markerId topic. It uses the distances 
+  between the robot and the landmark (robotXtoLM and robotYtoLM), along with the landmark's radius, to create and 
+  publish the marker.*/
   visualization_msgs::Marker publishLandmarkPose(int markerId, double robotXtoLM, double robotYtoLM, double landmark_radius)
 {
     visualization_msgs::Marker landmark_shape;
