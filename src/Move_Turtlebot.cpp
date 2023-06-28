@@ -4,7 +4,6 @@
 typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
 
 
-
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "map_navigation");
@@ -38,7 +37,6 @@ int main(int argc, char **argv)
   else
   {
     // Handle the case when the parameters are not found or have incorrect types
-    // ...
   }
 
   for (int i = 0; i < 4; i++)
@@ -59,13 +57,11 @@ int main(int argc, char **argv)
 
     if (ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
     {
-      // ROS_INFO("Hooray, the base moved to point %d", i+1);
-      std::cout << "\n\rHooray, the base moved to point " << i + 1 << std::endl;
+      ROS_INFO("YES! The turtlebot moved to assigned point %d", i+1);
       std::cout << "\n\r------------------------------------------------------------------------------------------------------" << std::endl;
     }
     else
-      // ROS_INFO("The base failed to move to point %d for some reason", i+1);
-      std::cout << "\n\rThe base failed to move to point " << i + 1 << " for some reason" << std::endl;
+      ROS_INFO("The turtlebot failed to move to assigned point %d for some reason", i+1);
   }
 
   return 0;
