@@ -31,9 +31,10 @@
 class EKF_Loc
 {
 private:
+  // Control vector 
   Eigen::Vector2d u_t;
-  std::vector<std::pair<double, double>> z_t; // Each pair is <range, angle>
-  std::vector<std::string> c_t;
+  // Measurement vector 
+  std::vector<std::pair<double, double>> z_t; 
 
   // State and covariance of the turtlebot
   Eigen::VectorXd mt;
