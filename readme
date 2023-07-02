@@ -13,29 +13,39 @@ This project depends on the following ROS packages:
 - rviz
 - move_base
 
-Make sure to have these packages installed before trying to launch this project.
+
 
 ## Installation
 
-To install the dependencies, run the following command:
+To install these dependencies, run the following commands:
 
-sudo apt-get install ros-noetic-gazebo-ros 
-sudo apt-get install ros-noetic-xacro 
-sudo apt-get install ros-noetic-turtlebot3-description 
-sudo apt-get install ros-noetic-turtlebot3-bringup 
-sudo apt-get install ros-noetic-map-server 
-sudo apt-get install ros-noetic-tf 
-sudo apt-get install ros-noetic-rviz 
-sudo apt-get install ros-noetic-move-base
+```
+$sudo apt-get install ros-noetic-gazebo-ros  
+$sudo apt-get install ros-noetic-xacro  
+$sudo apt-get install ros-noetic-turtlebot3-description  
+$sudo apt-get install ros-noetic-turtlebot3-bringup  
+$sudo apt-get install ros-noetic-map-server  
+$sudo apt-get install ros-noetic-tf  
+$sudo apt-get install ros-noetic-rviz  
+$sudo apt-get install ros-noetic-move-base  
+```
 
-sudo nano ~/.bashrc
-export TURTLEBOT3_MODEL=waffle
-export GAZEBO_MODEL_PATH=/home/halilpamuk24/catkin_ws/src/pamuk
-echo $GAZEBO_MODEL_PATH
 
-build it using catkin_make or catkin build.
+## Set turtlebot model and gazebo model path (to find the map) in bashrc
 
-Usage
-To launch this project, run the following command:
+Open bashrc with:
+```
+$sudo nano ~/.bashrc  
+```
 
-roslaunch pamuk <launch_file>
+Make following entries:   
+`export TURTLEBOT3_MODEL=waffle`  
+`export GAZEBO_MODEL_PATH=/path/to/package/pamuk`  
+
+Finally, either **open a new terminal** or `source ~/.bashrc`
+
+## Build and launch project
+
+Build it using `catkin_make` or `catkin build` from root.
+
+Launch this project with `roslaunch pamuk pamuk.launch`
