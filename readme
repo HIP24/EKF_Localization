@@ -34,11 +34,12 @@ $sudo apt-get install ros-noetic-move-base
 ## Set turtlebot model and gazebo model path (to find the map) in bashrc
 
 Open bashrc with:
+
 ```
 $sudo nano ~/.bashrc  
 ```
 
-Make following entries:   
+Add following entries:   
 `export TURTLEBOT3_MODEL=waffle`  
 `export GAZEBO_MODEL_PATH=/path/to/package/pamuk`  
 
