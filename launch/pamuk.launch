@@ -3,7 +3,7 @@
     <!-- Create gazebo world -->
     <include file="$(find gazebo_ros)launch/empty_world.launch" >
         <!--<arg name="world_name" value="$(find gazebo_ros)/worlds/empty.world" />-->
-        <arg name="world_name" value="$(find pamuk)/maps/turtlebot3_world.world" />
+        <arg name="world_name" value="$(find pamuk)/maps/turtlebot3_world/turtlebot3_world.world" />
         <arg name="gui" value="true" />
         <arg name="use_sim_time" value="true" />
         <arg name="paused" value="false" />
@@ -14,7 +14,7 @@
 
 	<include file="$(find turtlebot3_bringup)/launch/turtlebot3_remote.launch"/>
 
-    <node pkg="map_server" name="map_server" type="map_server" args="$(find pamuk)/maps/map.yaml"/>
+    <node pkg="map_server" name="map_server" type="map_server" args="$(find pamuk)/maps/turtlebot3_world/map.yaml"/>
     <node pkg="tf" type="static_transform_publisher" name="map_to_odom" args="0 0 0 0 0 0 map odom 30" />
     <node name="rviz" pkg="rviz" type="rviz" args="-d $(find pamuk)/rviz_config.rviz"/>
   
