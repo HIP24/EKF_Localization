@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(my_cool_project)
+project(pamuk)
 
 find_package(catkin REQUIRED COMPONENTS
   nav_msgs
@@ -24,7 +24,7 @@ link_directories(${laser_geometry_LIBRARY_DIRS})
 
 catkin_package(
 #  INCLUDE_DIRS include
-#  LIBRARIES my_cool_project
+#  LIBRARIES pamuk
   CATKIN_DEPENDS roscpp rosconsole actionlib tf2 tf2_ros nav_msgs sensor_msgs std_msgs
   DEPENDS EIGEN3
 )

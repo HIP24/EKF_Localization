@@ -464,7 +464,7 @@ public:
     landmark_shape.color.b = 1;
     return landmark_shape;
 }
-
+ 
 };
 
 int main(int argc, char **argv)

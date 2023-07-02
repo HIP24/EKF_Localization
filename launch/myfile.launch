@@ -3,8 +3,8 @@
     <!-- Create gazebo world -->
     <include file="$(find gazebo_ros)launch/empty_world.launch" >
         <!--<arg name="world_name" value="$(find gazebo_ros)/worlds/empty.world" />-->
-        <arg name="world_name" value="$(find my_cool_project)/maps/turtlebot3_world.world" />
-        <arg name="gui" value="false" />
+        <arg name="world_name" value="$(find pamuk)/maps/turtlebot3_world.world" />
+        <arg name="gui" value="true" />
         <arg name="use_sim_time" value="true" />
         <arg name="paused" value="false" />
     </include>
@@ -14,9 +14,9 @@
 
 	<include file="$(find turtlebot3_bringup)/launch/turtlebot3_remote.launch"/>
 
-    <node pkg="map_server" name="map_server" type="map_server" args="$(find my_cool_project)/maps/map.yaml"/>
+    <node pkg="map_server" name="map_server" type="map_server" args="$(find pamuk)/maps/map.yaml"/>
     <node pkg="tf" type="static_transform_publisher" name="map_to_odom" args="0 0 0 0 0 0 map odom 30" />
-    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find my_cool_project)/rviz_config.rviz"/>
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find pamuk)/rviz_config.rviz"/>
   
     <!-- Arguments -->
     <arg name="model" default="$(env TURTLEBOT3_MODEL)" doc="model type [burger, waffle, waffle_pi]"/>
@@ -27,19 +27,19 @@
     <!-- move_base -->
     <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
         <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS" />
-        <rosparam file="$(find my_cool_project)/param/costmap_common_params_$(arg model).yaml" command="load" ns="global_costmap" />
-        <rosparam file="$(find my_cool_project)/param/costmap_common_params_$(arg model).yaml" command="load" ns="local_costmap" />
-        <rosparam file="$(find my_cool_project)/param/local_costmap_params.yaml" command="load" />
-        <rosparam file="$(find my_cool_project)/param/global_costmap_params.yaml" command="load" />
-        <rosparam file="$(find my_cool_project)/param/move_base_params.yaml" command="load" />
-        <rosparam file="$(find my_cool_project)/param/dwa_local_planner_params_$(arg model).yaml" command="load" />
+        <rosparam file="$(find pamuk)/param/costmap_common_params_$(arg model).yaml" command="load" ns="global_costmap" />
+        <rosparam file="$(find pamuk)/param/costmap_common_params_$(arg model).yaml" command="load" ns="local_costmap" />
+        <rosparam file="$(find pamuk)/param/local_costmap_params.yaml" command="load" />
+        <rosparam file="$(find pamuk)/param/global_costmap_params.yaml" command="load" />
+        <rosparam file="$(find pamuk)/param/move_base_params.yaml" command="load" />
+        <rosparam file="$(find pamuk)/param/dwa_local_planner_params_$(arg model).yaml" command="load" />
         <remap from="cmd_vel" to="$(arg cmd_vel_topic)"/>
         <remap from="odom" to="$(arg odom_topic)"/>
         <param name="DWAPlannerROS/min_vel_x" value="0.0" if="$(arg move_forward_only)" />
-    <!-- Set additional parameters to reduce the maximum linear and angular velocities of the robot -->
-    <!--<param name="DWAPlannerROS/max_vel_x" value="0.12"/>-->
-    <param name="DWAPlannerROS/max_vel_theta" value="0.3"/>
-    <param name="DWAPlannerROS/min_vel_theta" value="-0.3"/>
+        <!-- Set additional parameters to reduce the maximum linear and angular velocities of the robot -->
+        <!--<param name="DWAPlannerROS/max_vel_x" value="0.12"/>-->
+        <param name="DWAPlannerROS/max_vel_theta" value="0.3"/>
+        <param name="DWAPlannerROS/min_vel_theta" value="-0.3"/>
     </node>
 
     <!-- Define a sequence of four points, will be included as ROS parameters and published as goals by the test node-->
@@ -49,13 +49,7 @@
     <param name="point4" type="yaml" value="{x: 0.6, y: -0.5}" />
 
     <!-- Start test node -->
-    <node pkg="my_cool_project" type="Move_Turtlebot" name="Move_Turtlebot_node" output="screen" />
-    <node pkg="my_cool_project" type="EKF_Loc" name="EKF_Loc_node" output="screen" launch-prefix="xterm -geometry 80x30 -fa 'Monospace' -fs 14 -e"/>
+    <node pkg="pamuk" type="Move_Turtlebot" name="Move_Turtlebot_node" output="screen" />
+    <node pkg="pamuk" type="EKF_Loc" name="EKF_Loc_node" output="screen" launch-prefix="xterm -geometry 80x30 -fa 'Monospace' -fs 14 -e"/>
 
 </launch>
-
-
-
-
-
-
