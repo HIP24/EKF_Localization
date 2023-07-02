@@ -1,0 +1,4 @@
+sudo nano ~/.bashrc
+export GAZEBO_MODEL_PATH=/home/halilpamuk24/catkin_ws/src/my_cool_project
+echo $GAZEBO_MODEL_PATH
+
