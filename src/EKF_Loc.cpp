@@ -58,16 +58,13 @@ private:
   double robot_x, robot_y, robot_quat_z, robot_quat_w;
 
   // Messages
-  geometry_msgs::PoseStamped turtle_pose;
-  visualization_msgs::Marker turtle_cov;
   visualization_msgs::Marker landmark_shape;
 
   // Publishers
   ros::Publisher point_cloud_pub;
   ros::Publisher landmark_shape_pub;
   ros::Publisher landmark_pose_pub;
-  ros::Publisher turtle_pose_pub;
-  ros::Publisher turtle_cov_pub;
+  ros::Publisher turtle_pose_with_cov;
 
   // Landmark struct 
    struct Landmark
@@ -106,8 +103,7 @@ public:
 
     // Initialize nodeHandle for ekf_pose
     ros::NodeHandle nodeHandle_adv;
-    turtle_pose_pub = nodeHandle_adv.advertise<geometry_msgs::PoseStamped>("/turtle_pose", 10);
-    turtle_cov_pub = nodeHandle_adv.advertise<visualization_msgs::Marker>("/turtle_cov", 10);
+    turtle_pose_with_cov = nodeHandle_adv.advertise<geometry_msgs::PoseWithCovarianceStamped>("/turtle_pose_with_cov", 10);
     point_cloud_pub = nodeHandle_adv.advertise<sensor_msgs::PointCloud2>("/point_cloud", 1000, false);
     landmark_shape_pub = nodeHandle_adv.advertise<visualization_msgs::MarkerArray>("landmark_shape", 10);
     landmark_pose_pub = nodeHandle_adv.advertise<geometry_msgs::PoseArray>("landmark_pose", 10);
@@ -132,8 +128,7 @@ public:
 
     predict();
     printMtCov();
-    publishTurtlePose();
-    publishTurtleCovarianceEllipse();
+    publishTurtlePoseWithCovariance(); 
   }
 
   /*This function is the callback for the /odom topic. It receives the odometry data for the 
@@ -223,8 +218,7 @@ public:
 
       correct(landmark_poses.poses);
       printMtCov();
-      publishTurtlePose();
-      publishTurtleCovarianceEllipse();
+      publishTurtlePoseWithCovariance(); 
 
       int markerId = 0;
       landmark_shape = publishLandmarkPose(markerId++, robotXtoLM, robotYtoLM, landmark_radius);
@@ -338,90 +332,41 @@ public:
    
   }
 
-  /*This function publishes the turtle's estimated pose (mt) as a geometry_msgs::PoseStamped message
-    on the /turtle_pose topic. It sets the position and orientation of the turtle's pose and publishes 
-    the message.*/
-  void publishTurtlePose()
-  {
-    // Fill turtle_pose message to represent the pose
-    turtle_pose.header.frame_id = "map";
-    turtle_pose.header.stamp = ros::Time::now();
-    turtle_pose.pose.position.x = mt(0);
-    turtle_pose.pose.position.y = mt(1);
+  /*This function publishes the turtle's estimated pose (mt) and covariance (cov) as a 
+  geometry_msgs::PoseWithCovarianceStamped message on the /turtle_pose_with_cov topic. It sets the position, 
+  orientation, and covariance of the turtle's pose and publishes the message.*/
+  void publishTurtlePoseWithCovariance()
+{
+    // Create a PoseWithCovarianceStamped message
+    geometry_msgs::PoseWithCovarianceStamped pose_cov_msg;
+    pose_cov_msg.header.frame_id = "map";
+    pose_cov_msg.header.stamp = ros::Time::now();
 
+    // Set the position of the pose
+    pose_cov_msg.pose.pose.position.x = mt(0);
+    pose_cov_msg.pose.pose.position.y = mt(1);
+
+    // Set the orientation of the pose
     double roll = 0;
     double pitch = 0;
     double yaw = mt(2); // your yaw angle in radians
-
     tf2::Quaternion q;
     q.setRPY(roll, pitch, yaw);
-
     geometry_msgs::Quaternion quat_msg;
     quat_msg.x = q.x();
     quat_msg.y = q.y();
     quat_msg.z = q.z();
     quat_msg.w = q.w();
+    pose_cov_msg.pose.pose.orientation = quat_msg;
 
-    turtle_pose.pose.orientation = quat_msg;
+    // Set the covariance of the pose
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+            pose_cov_msg.pose.covariance[i * 6 + j] = cov(i, j);
 
-    // Publish the turtle_pose message
-    turtle_pose_pub.publish(turtle_pose);
-  }
-
-  /*This function publishes the covariance ellipse of the turtle's pose as a visualization_msgs::Marker 
-    message on the /turtle_cov topic. It computes the eigenvalues and eigenvectors of the covariance 
-    matrix and determines the orientation and size of the ellipse. It then publishes the marker 
-    representing the covariance ellipse.*/
-  void publishTurtleCovarianceEllipse()
-  {
-    // Compute the eigenvalues and eigenvectors of the covariance matrix
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solver(cov.block<2, 2>(0, 0));
-    Eigen::Vector2d eigenvalues = solver.eigenvalues();
-    Eigen::Matrix2d eigenvectors = solver.eigenvectors();
-
-    // Compute the angle of rotation and the semi-major and semi-minor axes of the ellipse
-    double angle = atan2(eigenvectors(1, 0), eigenvectors(0, 0));
-    double a = sqrt(eigenvalues(0));
-    double b = sqrt(eigenvalues(1));
-
-    // Fill turtle_cov message to represent the ellipse
-    turtle_cov.header.frame_id = "map";
-    turtle_cov.header.stamp = ros::Time::now();
-    turtle_cov.ns = "ellipse";
-    turtle_cov.id = 0;
-    turtle_cov.type = visualization_msgs::Marker::CYLINDER;
-    turtle_cov.action = visualization_msgs::Marker::ADD;
-    turtle_cov.pose.position.x = mt(0);
-    turtle_cov.pose.position.y = mt(1);
-    turtle_cov.pose.position.z = 0;
-
-    double roll = 0;
-    double pitch = 0;
-    double yaw = mt(2); 
-
-    tf2::Quaternion q;
-    q.setRPY(roll, pitch, yaw);
-
-    geometry_msgs::Quaternion quat_msg;
-    quat_msg.x = q.x();
-    quat_msg.y = q.y();
-    quat_msg.z = q.z();
-    quat_msg.w = q.w();
-
-    turtle_cov.pose.orientation = quat_msg;
-
-    // Scale and colorize the landmark
-    turtle_cov.scale.x = a * 2;
-    turtle_cov.scale.y = b * 2;
-    turtle_cov.scale.z = 0.01;
-    turtle_cov.color.a = 0.5;
-    turtle_cov.color.r = 1.0;
-    turtle_cov.color.g = 0.0;
-    turtle_cov.color.b = 0.0;
-
-    // Publish the turtle_cov message
-    turtle_cov_pub.publish(turtle_cov);
-  }
+    // Publish the PoseWithCovarianceStamped message
+    turtle_pose_with_cov.publish(pose_cov_msg);
+}
 
   /*This function returns the pose of a landmark based on its distance from the robot (robotXtoLM and 
     robotYtoLM) and the provided Landmark object.*/
