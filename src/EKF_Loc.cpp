@@ -33,8 +33,6 @@ class EKF_Loc
 private:
   // Control vector 
   Eigen::Vector2d u_t;
-  // Measurement vector 
-  std::vector<std::pair<double, double>> z_t; 
 
   // State and covariance of the turtlebot
   Eigen::VectorXd mt;
@@ -64,7 +62,8 @@ private:
   ros::Publisher point_cloud_pub;
   ros::Publisher landmark_shape_pub;
   ros::Publisher landmark_pose_pub;
-  ros::Publisher turtle_pose_with_cov;
+  ros::Publisher turtle_pose_with_cov_pub;
+  ros::Publisher error_pub;
 
   // Landmark struct 
    struct Landmark
@@ -103,37 +102,38 @@ public:
 
     // Initialize nodeHandle for ekf_pose
     ros::NodeHandle nodeHandle_adv;
-    turtle_pose_with_cov = nodeHandle_adv.advertise<geometry_msgs::PoseWithCovarianceStamped>("/turtle_pose_with_cov", 10);
+    turtle_pose_with_cov_pub = nodeHandle_adv.advertise<geometry_msgs::PoseWithCovarianceStamped>("/turtle_pose_with_cov", 10);
     point_cloud_pub = nodeHandle_adv.advertise<sensor_msgs::PointCloud2>("/point_cloud", 1000, false);
     landmark_shape_pub = nodeHandle_adv.advertise<visualization_msgs::MarkerArray>("landmark_shape", 10);
     landmark_pose_pub = nodeHandle_adv.advertise<geometry_msgs::PoseArray>("landmark_pose", 10);
+    error_pub = nodeHandle_adv.advertise<geometry_msgs::Vector3>("/error", 10);
 
     // Create two Landmark objects [innerTH, outerTH, landX, landY, signature]
     landmark_map[1] = {0.3, 0.4, 1.1, -1.1, 1};
     landmark_map[3] = {0.2, 0.3, -1.1, 1.1, 3};
   }
 
-  /*This function is the callback for the /cmd_vel topic. It receives the linear 
-    and angular velocity commands for the turtlebot and updates the control input (u_t). 
-    It then calls the predict() function to perform the prediction step of the Extended 
-    Kalman Filter (EKF), updates the turtle's pose, and publishes the pose and covariance.*/
+  /*Callback for the /cmd_vel topic. It receives the linear and angular velocity commands
+   for the turtlebot and updates the control input (u_t). It then calls the predict() 
+   function to perform the prediction step of the Extended Kalman Filter (EKF), 
+   updates the turtle's pose, and publishes the pose and covariance.*/
   void cmd_velCallback(const geometry_msgs::Twist::ConstPtr &commandMsg)
   {
     // Forward velocity
     double v = commandMsg->linear.x;
     // Rotational velocity
     double w = commandMsg->angular.z;
-    // Updae the control input
+    // Update the control input
     u_t << v, w;
 
     predict();
-    printMtCov();
+    compareMtToReal();
     publishTurtlePoseWithCovariance(); 
   }
 
-  /*This function is the callback for the /odom topic. It receives the odometry data for the 
-    turtlebot and extracts the robot's position and orientation. These values are extracted
-    only to compare them to the estimated pose. */
+  /*Callback for the /odom topic. It receives the odometry data for the turtlebot 
+  and extracts the robot's position and orientation. These values are extracted 
+  only to compare them to the estimated pose. */
   void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
   { 
     // Update the robot's x and y coordinates
@@ -155,11 +155,11 @@ public:
     theta = yaw;
   }
 
-  /*This function is the callback for the /scan topic. It receives laser scan data, converts
-    it to a point cloud, and performs circle fitting using the RANSAC algorithm to detect landmarks. 
-    For each detected landmark, it calculates the position in the map frame and calls the correct() 
-    function to update the turtle's pose estimation. It also publishes the detected landmark poses 
-    and shapes.*/
+  /*Callback for the /scan topic. It receives laser scan data, converts it to a point
+   cloud, and performs circle fitting using the RANSAC algorithm to detect landmarks. 
+    For each detected landmark, it calculates the position in the map frame and calls 
+    the correct() function to update the turtle's pose estimation. It also publishes
+    the detected landmark poses and shapes.*/
   void scanCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
   {
     // MarkerArray message to store the landmark shapes
@@ -217,7 +217,7 @@ public:
       landmark_poses.poses.push_back(landmark_pose);
 
       correct(landmark_poses.poses);
-      printMtCov();
+      compareMtToReal();
       publishTurtlePoseWithCovariance(); 
 
       int markerId = 0;
@@ -233,17 +233,26 @@ public:
     landmark_shape_pub.publish(landmark_shapes);
   }
 
-  /*This function prints the turtle's estimated position (mt) and covariance (cov) to the console. 
+  /*Prints the turtle's estimated position (mt) and covariance (cov) to the console. 
     It also prints the real position of the robot (robot_x and robot_y) from odometry data.*/
-  void printMtCov()
+  void compareMtToReal()
   {
     //std::cout << "Cov: " << std::endl << cov << std::endl;
     //std::cout << "Pose: " << std::endl << mt << std::endl;
     std::cout << "Robot's real position: (x = " << robot_x << ", y = " << robot_y << ")" << std::endl;
     std::cout << "Robot's estimated position: (x = " << mt(0) << ", y = " << mt(1) << ", theta = " << mt(2) <<")" << std::endl;
+  
+    double error_x = mt(0) - robot_x;
+    double error_y = mt(1) - robot_y;
+    double error_theta = mt(2) - yaw;
+    geometry_msgs::Vector3 error_msg;
+    error_msg.x = error_x;
+    error_msg.y = error_y;
+    error_msg.z = error_theta;
+    error_pub.publish(error_msg);
   }
 
-  /*This function performs the correction step of the EKF. It takes a vector of detected landmark 
+  /*Performs the correction step of the EKF. It takes a vector of detected landmark 
     poses as input and updates the turtle's pose estimation (mt) and covariance (cov) based on the
     measurement information. It uses the difference between the observed and predicted landmark 
     positions to calculate the Kalman gain and update the pose estimation. */
@@ -304,7 +313,7 @@ public:
      cov = (I - cov_E) * cov;
     }
 
-  /*This function performs the prediction step of the EKF Localization. It updates the turtle's pose 
+  /*Performs the prediction step of the EKF Localization. It updates the turtle's pose 
     estimation (mt) and covariance (cov) based on the control input (u_t) and the system dynamics. It 
     calculates the state transition matrix (A) and control input matrix (B) and updates the pose 
     estimation and covariance using the motion model.*/
@@ -332,7 +341,7 @@ public:
    
   }
 
-  /*This function publishes the turtle's estimated pose (mt) and covariance (cov) as a 
+  /*Publishes the turtle's estimated pose (mt) and covariance (cov) as a 
   geometry_msgs::PoseWithCovarianceStamped message on the /turtle_pose_with_cov topic. It sets the position, 
   orientation, and covariance of the turtle's pose and publishes the message.*/
   void publishTurtlePoseWithCovariance()
@@ -365,10 +374,10 @@ public:
             pose_cov_msg.pose.covariance[i * 6 + j] = cov(i, j);
 
     // Publish the PoseWithCovarianceStamped message
-    turtle_pose_with_cov.publish(pose_cov_msg);
+    turtle_pose_with_cov_pub.publish(pose_cov_msg);
 }
 
-  /*This function returns the pose of a landmark based on its distance from the robot (robotXtoLM and 
+  /*Returns the pose of a landmark based on its distance from the robot (robotXtoLM and 
     robotYtoLM) and the provided Landmark object.*/
   geometry_msgs::Pose populateLandmarkPose(const Landmark& landmark, double robotXtoLM, double robotYtoLM)
 {
@@ -383,7 +392,7 @@ public:
     return landmark_pose;
 }
 
-  /*This function publishes the pose of a landmark as a marker on the specified markerId topic. It uses the distances 
+  /*Publishes the pose of a landmark as a marker on the specified markerId topic. It uses the distances 
   between the robot and the landmark (robotXtoLM and robotYtoLM), along with the landmark's radius, to create and 
   publish the marker.*/
   visualization_msgs::Marker publishLandmarkPose(int markerId, double robotXtoLM, double robotYtoLM, double landmark_radius)

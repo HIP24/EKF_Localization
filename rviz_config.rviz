@@ -6,7 +6,6 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
-        - /PoseWithCovariance1
       Splitter Ratio: 0.5
     Tree Height: 780
   - Class: rviz/Selection
@@ -266,7 +265,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 6.6544671058654785
+      Distance: 7.018272399902344
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1

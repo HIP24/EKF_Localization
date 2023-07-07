@@ -4,7 +4,7 @@
     <include file="$(find gazebo_ros)launch/empty_world.launch" >
         <!--<arg name="world_name" value="$(find gazebo_ros)/worlds/empty.world" />-->
         <arg name="world_name" value="$(find pamuk)/maps/turtlebot3_world/turtlebot3_world.world" />
-        <arg name="gui" value="true" />
+        <arg name="gui" value="false" />
         <arg name="use_sim_time" value="true" />
         <arg name="paused" value="false" />
     </include>
@@ -38,15 +38,15 @@
         <param name="DWAPlannerROS/min_vel_x" value="0.0" if="$(arg move_forward_only)" />
         <!-- Set additional parameters to reduce the maximum linear and angular velocities of the robot -->
         <!--<param name="DWAPlannerROS/max_vel_x" value="0.12"/>-->
-        <param name="DWAPlannerROS/max_vel_theta" value="0.3"/>
-        <param name="DWAPlannerROS/min_vel_theta" value="-0.3"/>
+        <!--<param name="DWAPlannerROS/max_vel_theta" value="0.3"/>-->
+        <!--<param name="DWAPlannerROS/min_vel_theta" value="-0.3"/>-->
     </node>
 
     <!-- Define a sequence of four points, will be included as ROS parameters and published as goals by the test node-->
-    <param name="point1" type="yaml" value="{x: 0.0, y: 2.0}" />
-    <param name="point2" type="yaml" value="{x: 1.9, y: -0.6}" />
-    <param name="point3" type="yaml" value="{x: -2.0, y: 0.0}" />
-    <param name="point4" type="yaml" value="{x: 0.6, y: -0.5}" />
+    <param name="point1" type="yaml" value="{x: 0.5, y: -1.0}" />
+    <param name="point2" type="yaml" value="{x: -1.6, y: -1.2}" />
+    <param name="point3" type="yaml" value="{x: -1.0, y: 0.3}" />
+    <param name="point4" type="yaml" value="{x: 0.5, y: -1.0}" />
 
     <!-- Start test node -->
     <node pkg="pamuk" type="Move_Turtlebot" name="Move_Turtlebot_node" output="screen" />
