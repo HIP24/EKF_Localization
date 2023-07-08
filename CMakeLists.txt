@@ -38,6 +38,6 @@ include_directories(
 add_executable(Move_Turtlebot src/Move_Turtlebot.cpp)
 target_link_libraries(Move_Turtlebot ${catkin_LIBRARIES} pthread)
 
-add_executable(EKF_Loc src/EKF_Loc.cpp)
-target_link_libraries(EKF_Loc ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${laser_geometry_LIBRARIES} pthread)
+add_executable(KF_Loc src/KF_Loc.cpp)
+target_link_libraries(KF_Loc ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${laser_geometry_LIBRARIES} pthread)
 

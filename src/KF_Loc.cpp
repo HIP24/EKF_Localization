@@ -28,15 +28,15 @@
 #include <pcl/segmentation/sac_segmentation.h>
 
 
-class EKF_Loc
+class KF_Loc
 {
 private:
   // Control vector 
   Eigen::Vector2d u_t;
 
   // State and covariance of the turtlebot
-  Eigen::VectorXd mt;
-  Eigen::MatrixXd cov;
+  Eigen::VectorXd m_t;
+  Eigen::MatrixXd cov_t;
   double sigma_x_cov = 0.1;
   double sigma_y_cov = 0.1;
   double sigma_theta_cov = 0.1;
@@ -78,15 +78,15 @@ private:
   std::map<int, Landmark> landmark_map;
 
 public:
-  EKF_Loc()
+  KF_Loc()
   {
-    // Initialize with the initial pose mt [x, y, theta]
-    mt.resize(3);
-    mt << -2, -0.5, 0;
+    // Initialize with the initial pose m_t [x, y, theta]
+    m_t.resize(3);
+    m_t << -2, -0.5, 0;
 
-    // Initialize initial covariance cov
-    cov.resize(3, 3);
-    cov << pow(sigma_x_cov, 2), 0, 0,
+    // Initialize initial covariance cov_t
+    cov_t.resize(3, 3);
+    cov_t << pow(sigma_x_cov, 2), 0, 0,
         0, pow(sigma_y_cov, 2), 0,
         0, 0, pow(sigma_theta_cov, 2);
 
@@ -100,7 +100,7 @@ public:
     Q.resize(3, 3);
     Q = Eigen::Matrix<double, 3, 3>::Identity();
 
-    // Initialize nodeHandle for ekf_pose
+    // Initialize nodeHandle for advertizing
     ros::NodeHandle nodeHandle_adv;
     turtle_pose_with_cov_pub = nodeHandle_adv.advertise<geometry_msgs::PoseWithCovarianceStamped>("/turtle_pose_with_cov", 10);
     point_cloud_pub = nodeHandle_adv.advertise<sensor_msgs::PointCloud2>("/point_cloud", 1000, false);
@@ -115,7 +115,7 @@ public:
 
   /*Callback for the /cmd_vel topic. It receives the linear and angular velocity commands
    for the turtlebot and updates the control input (u_t). It then calls the predict() 
-   function to perform the prediction step of the Extended Kalman Filter (EKF), 
+   function to perform the prediction step of the Kalman Filter (KF), 
    updates the turtle's pose, and publishes the pose and covariance.*/
   void cmd_velCallback(const geometry_msgs::Twist::ConstPtr &commandMsg)
   {
@@ -233,18 +233,18 @@ public:
     landmark_shape_pub.publish(landmark_shapes);
   }
 
-  /*Prints the turtle's estimated position (mt) and covariance (cov) to the console. 
+  /*Prints the turtle's estimated position (m_t) and covariance (cov_t) to the console. 
     It also prints the real position of the robot (robot_x and robot_y) from odometry data.*/
   void compareMtToReal()
   {
-    //std::cout << "Cov: " << std::endl << cov << std::endl;
-    //std::cout << "Pose: " << std::endl << mt << std::endl;
+    //std::cout << "Cov: " << std::endl << cov_t << std::endl;
+    //std::cout << "Pose: " << std::endl << m_t << std::endl;
     std::cout << "Robot's real position: (x = " << robot_x << ", y = " << robot_y << ")" << std::endl;
-    std::cout << "Robot's estimated position: (x = " << mt(0) << ", y = " << mt(1) << ", theta = " << mt(2) <<")" << std::endl;
+    std::cout << "Robot's estimated position: (x = " << m_t(0) << ", y = " << m_t(1) << ", theta = " << m_t(2) <<")" << std::endl;
   
-    double error_x = mt(0) - robot_x;
-    double error_y = mt(1) - robot_y;
-    double error_theta = mt(2) - yaw;
+    double error_x = m_t(0) - robot_x;
+    double error_y = m_t(1) - robot_y;
+    double error_theta = m_t(2) - yaw;
     geometry_msgs::Vector3 error_msg;
     error_msg.x = error_x;
     error_msg.y = error_y;
@@ -252,20 +252,20 @@ public:
     error_pub.publish(error_msg);
   }
 
-  /*Performs the correction step of the EKF. It takes a vector of detected landmark 
-    poses as input and updates the turtle's pose estimation (mt) and covariance (cov) based on the
+  /*Performs the correction step of the KF localization. It takes a vector of detected landmark 
+    poses as input and updates the turtle's pose estimation (m_t) and covariance (cov_t) based on the
     measurement information. It uses the difference between the observed and predicted landmark 
     positions to calculate the Kalman gain and update the pose estimation. */
   void correct(const std::vector<geometry_msgs::Pose>& landmarks)
   {
     Eigen::Matrix<double, 3, 3> I = Eigen::Matrix<double, 3, 3>::Identity();
-    Eigen::VectorXd mt_E(3);
+    Eigen::VectorXd m_E(3);
     Eigen::MatrixXd cov_E(3,3);
 
-    // Sum for mt
-    mt_E << 0., 0., 0.;
+    // Sum for m_t
+    m_E << 0., 0., 0.;
 
-    // Sum for cov
+    // Sum for cov_t
     cov_E << 0., 0., 0.,
             0., 0., 0.,
             0., 0., 0.;
@@ -281,12 +281,12 @@ public:
 
       // Real landmarks in map frame
       Eigen::Vector2d delta;
-      delta << landX_map - mt(0),
-               landY_map - mt(1);
+      delta << landX_map - m_t(0),
+               landY_map - m_t(1);
       double q = delta.transpose() * delta;
       Eigen::Vector3d z_exp_i;
       z_exp_i << sqrt(q),
-                 atan2(delta(1), delta(0)) - mt(2),
+                 atan2(delta(1), delta(0)) - m_t(2),
                  signature;
 
       // Observed landmarks in robot frame
@@ -304,17 +304,17 @@ public:
              delta(1) / q, -delta(0) / q, -1,
              0, 0, 0;
 
-      Eigen::Matrix3d K_i = cov * H_i.transpose() * (H_i * cov * H_i.transpose() + Q).inverse();
-      mt_E += K_i * (z_i - z_exp_i);
+      Eigen::Matrix3d K_i = cov_t * H_i.transpose() * (H_i * cov_t * H_i.transpose() + Q).inverse();
+      m_E += K_i * (z_i - z_exp_i);
       cov_E += K_i * H_i;    
     }
-    // Update mt and cov
-     mt += mt_E;
-     cov = (I - cov_E) * cov;
+    // Update m_t and cov_t
+     m_t += m_E;
+     cov_t = (I - cov_E) * cov_t;
     }
 
-  /*Performs the prediction step of the EKF Localization. It updates the turtle's pose 
-    estimation (mt) and covariance (cov) based on the control input (u_t) and the system dynamics. It 
+  /*Performs the prediction step of the KF Localization. It updates the turtle's pose 
+    estimation (m_t) and covariance (cov_t) based on the control input (u_t) and the system dynamics. It 
     calculates the state transition matrix (A) and control input matrix (B) and updates the pose 
     estimation and covariance using the motion model.*/
   void predict()
@@ -331,17 +331,17 @@ public:
         0, 0, 1;
 
     // Update the estimated state
-    mt(0) += u_t[0] * delta_t * cos(theta);
-    mt(1) += u_t[0] * delta_t * sin(theta);
-    mt(2) += u_t[1] * delta_t;
-    mt(2) = std::atan2(std::sin(mt(2)), std::cos(mt(2)));
+    m_t(0) += u_t[0] * delta_t * cos(theta);
+    m_t(1) += u_t[0] * delta_t * sin(theta);
+    m_t(2) += u_t[1] * delta_t;
+    m_t(2) = std::atan2(std::sin(m_t(2)), std::cos(m_t(2)));
 
     // Update the covariance
-    cov = A * cov * A.transpose() + R; // update error covariance
+    cov_t = A * cov_t * A.transpose() + R; // update error covariance
    
   }
 
-  /*Publishes the turtle's estimated pose (mt) and covariance (cov) as a 
+  /*Publishes the turtle's estimated pose (m_t) and covariance (cov_t) as a 
   geometry_msgs::PoseWithCovarianceStamped message on the /turtle_pose_with_cov topic. It sets the position, 
   orientation, and covariance of the turtle's pose and publishes the message.*/
   void publishTurtlePoseWithCovariance()
@@ -352,13 +352,13 @@ public:
     pose_cov_msg.header.stamp = ros::Time::now();
 
     // Set the position of the pose
-    pose_cov_msg.pose.pose.position.x = mt(0);
-    pose_cov_msg.pose.pose.position.y = mt(1);
+    pose_cov_msg.pose.pose.position.x = m_t(0);
+    pose_cov_msg.pose.pose.position.y = m_t(1);
 
     // Set the orientation of the pose
     double roll = 0;
     double pitch = 0;
-    double yaw = mt(2); // your yaw angle in radians
+    double yaw = m_t(2); // your yaw angle in radians
     tf2::Quaternion q;
     q.setRPY(roll, pitch, yaw);
     geometry_msgs::Quaternion quat_msg;
@@ -371,7 +371,7 @@ public:
     // Set the covariance of the pose
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++)
-            pose_cov_msg.pose.covariance[i * 6 + j] = cov(i, j);
+            pose_cov_msg.pose.covariance[i * 6 + j] = cov_t(i, j);
 
     // Publish the PoseWithCovarianceStamped message
     turtle_pose_with_cov_pub.publish(pose_cov_msg);
@@ -423,13 +423,13 @@ public:
 
 int main(int argc, char **argv)
 {
-  ros::init(argc, argv, "ekf_loc");
+  ros::init(argc, argv, "KF_Loc");
   ros::NodeHandle nodeHandle_sub;
-  EKF_Loc ekf;
+  KF_Loc kf_loc;
 
-  ros::Subscriber odom_sub = nodeHandle_sub.subscribe<nav_msgs::Odometry>("/odom", 3000, std::bind(&EKF_Loc::odomCallback, &ekf, std::placeholders::_1));
-  ros::Subscriber scan_sub = nodeHandle_sub.subscribe<sensor_msgs::LaserScan>("/scan", 500, std::bind(&EKF_Loc::scanCallback, &ekf, std::placeholders::_1));
-  ros::Subscriber cmd_vel_sub = nodeHandle_sub.subscribe<geometry_msgs::Twist>("/cmd_vel", 1000, std::bind(&EKF_Loc::cmd_velCallback, &ekf, std::placeholders::_1));
+  ros::Subscriber odom_sub = nodeHandle_sub.subscribe<nav_msgs::Odometry>("/odom", 3000, std::bind(&KF_Loc::odomCallback, &kf_loc, std::placeholders::_1));
+  ros::Subscriber scan_sub = nodeHandle_sub.subscribe<sensor_msgs::LaserScan>("/scan", 500, std::bind(&KF_Loc::scanCallback, &kf_loc, std::placeholders::_1));
+  ros::Subscriber cmd_vel_sub = nodeHandle_sub.subscribe<geometry_msgs::Twist>("/cmd_vel", 1000, std::bind(&KF_Loc::cmd_velCallback, &kf_loc, std::placeholders::_1));
 
   ros::spin();
 
