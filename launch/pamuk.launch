@@ -44,7 +44,7 @@
 
     <!-- Define a sequence of four points, will be included as ROS parameters and published as goals by the test node-->
     <param name="point1" type="yaml" value="{x: 0.5, y: -1.0}" />
-    <param name="point2" type="yaml" value="{x: -1.6, y: -1.2}" />
+    <param name="point2" type="yaml" value="{x: -2.0, y: -1.0}" />
     <param name="point3" type="yaml" value="{x: -1.0, y: 0.3}" />
     <param name="point4" type="yaml" value="{x: 0.5, y: -1.0}" />
 

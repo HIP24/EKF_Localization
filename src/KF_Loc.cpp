@@ -48,12 +48,11 @@ private:
   double sigma_x_R = 0.1;
   double sigma_y_R = 0.1;
   double sigma_theta_R = 0.1;
-  double theta = 0;
   double delta_t = 0.1;
 
   // Position and orientation of the turtlebot
   double roll, pitch, yaw;
-  double robot_x, robot_y, robot_quat_z, robot_quat_w;
+  double robot_x_odom, robot_y_odom, robot_quat_z_odom, robot_quat_w_odom, robot_theta_odom;
 
   // Messages
   visualization_msgs::Marker landmark_shape;
@@ -83,18 +82,17 @@ public:
     // Initialize with the initial pose m_t [x, y, theta]
     m_t.resize(3);
     m_t << -2, -0.5, 0;
-
     // Initialize initial covariance cov_t
     cov_t.resize(3, 3);
-    cov_t << pow(sigma_x_cov, 2), 0, 0,
-        0, pow(sigma_y_cov, 2), 0,
-        0, 0, pow(sigma_theta_cov, 2);
+    cov_t << 0.01, 0, 0,
+        0, 0.01, 0,
+        0, 0, 0.01;
 
     // Initialize process noise R
     R.resize(3, 3);
-    R << pow(sigma_x_R, 2), 0, 0,
-        0, pow(sigma_y_R, 2), 0,
-        0, 0, pow(sigma_theta_R, 2);
+    R << 0.01, 0, 0,
+        0, 0.01, 0,
+        0, 0, 0.01;
 
     // Initialize measurement noise Q
     Q.resize(3, 3);
@@ -129,30 +127,6 @@ public:
     predict();
     compareMtToReal();
     publishTurtlePoseWithCovariance(); 
-  }
-
-  /*Callback for the /odom topic. It receives the odometry data for the turtlebot 
-  and extracts the robot's position and orientation. These values are extracted 
-  only to compare them to the estimated pose. */
-  void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
-  { 
-    // Update the robot's x and y coordinates
-    robot_x = msg->pose.pose.position.x;
-    robot_y = msg->pose.pose.position.y;
-    robot_quat_z = msg->pose.pose.orientation.z;
-    robot_quat_w = msg->pose.pose.orientation.w;
-
-    // Convert robot's orientation quaternion to yaw angle
-    tf2::Quaternion q;
-    q.setX(0);
-    q.setY(0);
-    q.setZ(robot_quat_z);
-    q.setW(robot_quat_w);
-    tf2::Matrix3x3 m(q);
-    m.getRPY(roll, pitch, yaw);
-
-    // Update theta with the current yaw angle
-    theta = yaw;
   }
 
   /*Callback for the /scan topic. It receives laser scan data, converts it to a point
@@ -233,24 +207,51 @@ public:
     landmark_shape_pub.publish(landmark_shapes);
   }
 
-  /*Prints the turtle's estimated position (m_t) and covariance (cov_t) to the console. 
-    It also prints the real position of the robot (robot_x and robot_y) from odometry data.*/
-  void compareMtToReal()
-  {
-    //std::cout << "Cov: " << std::endl << cov_t << std::endl;
-    //std::cout << "Pose: " << std::endl << m_t << std::endl;
-    std::cout << "Robot's real position: (x = " << robot_x << ", y = " << robot_y << ")" << std::endl;
-    std::cout << "Robot's estimated position: (x = " << m_t(0) << ", y = " << m_t(1) << ", theta = " << m_t(2) <<")" << std::endl;
-  
-    double error_x = m_t(0) - robot_x;
-    double error_y = m_t(1) - robot_y;
-    double error_theta = m_t(2) - yaw;
-    geometry_msgs::Vector3 error_msg;
-    error_msg.x = error_x;
-    error_msg.y = error_y;
-    error_msg.z = error_theta;
-    error_pub.publish(error_msg);
+  /*Callback for the /odom topic. It receives the odometry data for the turtlebot 
+  and extracts the robot's position and orientation. These values are extracted 
+  only to compare them to the estimated pose. */
+  void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
+  { 
+    // Update the robot's x and y coordinates
+    robot_x_odom = msg->pose.pose.position.x;
+    robot_y_odom = msg->pose.pose.position.y;
+    robot_quat_z_odom = msg->pose.pose.orientation.z;
+    robot_quat_w_odom = msg->pose.pose.orientation.w;
+
+    // Convert robot's orientation quaternion to yaw angle
+    tf2::Quaternion q;
+    q.setX(0);
+    q.setY(0);
+    q.setZ(robot_quat_z_odom);
+    q.setW(robot_quat_w_odom);
+    tf2::Matrix3x3 m(q);
+    m.getRPY(roll, pitch, yaw);
+
+    // Update theta with the current yaw angle
+    robot_theta_odom = yaw;
   }
+
+  /*Performs the prediction step of the KF Localization. It updates the turtle's pose 
+    estimation (m_t) and covariance (cov_t) based on the control input (u_t) and the system dynamics. It 
+    calculates the state transition matrix (A) and control input matrix (B) and updates the pose 
+    estimation and covariance using the motion model.*/
+  void predict()
+  {
+    A.resize(3, 3);
+    A << 1, 0, -u_t[0] * delta_t * sin(m_t(2)),
+         0, 1,  u_t[0] * delta_t * cos(m_t(2)),
+         0, 0,                   1;
+
+    // Update the estimated state
+    m_t(0) += u_t[0] * delta_t * cos(m_t(2));
+    m_t(1) += u_t[0] * delta_t * sin(m_t(2));
+    m_t(2) += u_t[1] * delta_t;
+    m_t(2) = atan2(sin(m_t(2)), cos(m_t(2)));
+
+    // Update the covariance
+    cov_t = A * cov_t * A.transpose() + R;
+   
+  } 
 
   /*Performs the correction step of the KF localization. It takes a vector of detected landmark 
     poses as input and updates the turtle's pose estimation (m_t) and covariance (cov_t) based on the
@@ -313,34 +314,26 @@ public:
      cov_t = (I - cov_E) * cov_t;
     }
 
-  /*Performs the prediction step of the KF Localization. It updates the turtle's pose 
-    estimation (m_t) and covariance (cov_t) based on the control input (u_t) and the system dynamics. It 
-    calculates the state transition matrix (A) and control input matrix (B) and updates the pose 
-    estimation and covariance using the motion model.*/
-  void predict()
+  /*Prints the turtle's estimated position (m_t) and covariance (cov_t) to the console. 
+    It also prints the real position of the robot (robot_x_odom and robot_y_odom) from odometry data.*/
+  void compareMtToReal()
   {
-    // std::cout << "Theta:\r\n " << theta << std::endl;
-    // std::cout << "v:\r\n " << u_t(0) << std::endl;
-    // std::cout << "w:\r\n " << u_t(1) << std::endl;
-    ////std::cout << "A:\r\n " << A << std::endl;
-    ////std::cout << "B:\r\n " << B << std::endl;
-
-    A.resize(3, 3);
-    A << 1, 0, -u_t[0] * delta_t * sin(theta),
-        0, 1, u_t[0] * delta_t * cos(theta),
-        0, 0, 1;
-
-    // Update the estimated state
-    m_t(0) += u_t[0] * delta_t * cos(theta);
-    m_t(1) += u_t[0] * delta_t * sin(theta);
-    m_t(2) += u_t[1] * delta_t;
-    m_t(2) = std::atan2(std::sin(m_t(2)), std::cos(m_t(2)));
-
-    // Update the covariance
-    cov_t = A * cov_t * A.transpose() + R; // update error covariance
-   
+    //std::cout << "Cov: " << std::endl << cov_t << std::endl;
+    //std::cout << "Pose: " << std::endl << m_t << std::endl;
+    std::cout << "Robot's real position: (x = " << robot_x_odom << ", y = " << robot_y_odom << ", theta = "<< robot_theta_odom << ")" << std::endl;
+    std::cout << "Robot's estimated position: (x = " << m_t(0) << ", y = " << m_t(1) << ", theta = " << m_t(2) <<")" << std::endl;
+  
+    double error_x = m_t(0) - robot_x_odom;
+    double error_y = m_t(1) - robot_y_odom;
+    double error_theta = m_t(2) - robot_theta_odom;
+    
+    geometry_msgs::Vector3 error_msg;
+    error_msg.x = error_x;
+    error_msg.y = error_y;
+    error_msg.z = error_theta;
+    error_pub.publish(error_msg);
   }
-
+  
   /*Publishes the turtle's estimated pose (m_t) and covariance (cov_t) as a 
   geometry_msgs::PoseWithCovarianceStamped message on the /turtle_pose_with_cov topic. It sets the position, 
   orientation, and covariance of the turtle's pose and publishes the message.*/
