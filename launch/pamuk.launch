@@ -49,7 +49,7 @@
     <param name="point4" type="yaml" value="{x: 0.5, y: -1.0}" />
 
     <!-- Start test node -->
-    <node pkg="pamuk" type="Move_Turtlebot" name="Move_Turtlebot_node" output="screen" />
+
     <node pkg="pamuk" type="KF_Loc" name="KF_Loc_node" output="screen" launch-prefix="xterm -geometry 80x30 -fa 'Monospace' -fs 14 -e"/>
 
 </launch>

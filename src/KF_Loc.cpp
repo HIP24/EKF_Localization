@@ -106,8 +106,8 @@ public:
 
   /*Callback for the /cmd_vel topic. It receives the linear and angular velocity commands
    for the turtlebot and updates the control input (u_t). It then calls the predict() 
-   function to perform the prediction step of the Kalman Filter (KF), 
-   updates the turtle's pose, and publishes the pose and covariance.*/
+   function to perform the prediction step of the Kalman Filter (KF), updates the 
+   turtlebot's pose, and publishes the pose and covariance.*/
   void cmd_velCallback(const geometry_msgs::Twist::ConstPtr &commandMsg)
   {
     // Forward velocity
@@ -123,10 +123,9 @@ public:
   }
 
   /*Callback for the /scan topic. It receives laser scan data, converts it to a point
-   cloud, and performs circle fitting using the RANSAC algorithm to detect landmarks. 
-    For each detected landmark, it calculates the position in the map frame and calls 
-    the correct() function to update the turtle's pose estimation. It also publishes
-    the detected landmark poses and shapes.*/
+    cloud, and performs circle fitting using the RANSAC algorithm to detect landmarks. 
+    For each detected landmark, it calls the correct() function to update the pose 
+    estimation of the turtlebot. It also publishes the detected landmark poses and shapes.*/
   void scanCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
   {
     // MarkerArray message to store the landmark shapes
@@ -201,8 +200,8 @@ public:
   }
 
   /*Callback for the /odom topic. It receives the odometry data for the turtlebot 
-  and extracts the robot's position and orientation. These values are extracted 
-  only to compare them to the estimated pose. */
+    and extracts the robot's position and orientation. These values are extracted 
+    only to compare them to the estimated pose. */
   void odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
   { 
     // Update the robot's x and y coordinates
@@ -224,10 +223,8 @@ public:
     robot_theta_odom = yaw;
   }
 
-  /*Performs the prediction step of the KF Localization. It updates the turtle's pose 
-    estimation (m_t) and covariance (cov_t) based on the control input (u_t) and the system dynamics. It 
-    calculates the state transition matrix (A) and control input matrix (B) and updates the pose 
-    estimation and covariance using the motion model.*/
+  /*Performs the prediction step of the KF Localization. It updates the turtlebot's pose 
+    estimation and covariance based on the control input (u_t). */
   void predict()
   {
     A.resize(3, 3);
@@ -247,9 +244,7 @@ public:
   } 
 
   /*Performs the correction step of the KF localization. It takes a vector of detected landmark 
-    poses as input and updates the turtle's pose estimation (m_t) and covariance (cov_t) based on the
-    measurement information. It uses the difference between the observed and predicted landmark 
-    positions to calculate the Kalman gain and update the pose estimation. */
+    poses as input and updates the pose estimation and covariance of the turtlebot. */
   void correct(const std::vector<geometry_msgs::Pose>& landmarks)
   {
     Eigen::Matrix<double, 3, 3> I = Eigen::Matrix<double, 3, 3>::Identity();
@@ -307,8 +302,7 @@ public:
      cov_t = (I - cov_E) * cov_t;
     }
 
-  /*Prints the turtle's estimated position (m_t) and covariance (cov_t) to the console. 
-    It also prints the real position of the robot (robot_x_odom and robot_y_odom) from odometry data.*/
+  /* Compares estimated pose from filter to real pose from odometry data. Publishes the error. */
   void compareMtToReal()
   {
     //std::cout << "Cov: " << std::endl << cov_t << std::endl;
@@ -327,9 +321,7 @@ public:
     error_pub.publish(error_msg);
   }
   
-  /*Publishes the turtle's estimated pose (m_t) and covariance (cov_t) as a 
-  geometry_msgs::PoseWithCovarianceStamped message on the /turtle_pose_with_cov topic. It sets the position, 
-  orientation, and covariance of the turtle's pose and publishes the message.*/
+  /*Publishes the turtlebots's estimated pose and covariance on the /turtle_pose_with_cov topic. */
   void publishTurtlePoseWithCovariance()
 {
     // Create a PoseWithCovarianceStamped message
@@ -363,8 +355,7 @@ public:
     turtle_pose_with_cov_pub.publish(pose_cov_msg);
 }
 
-  /*Returns the pose of a landmark based on its distance from the robot (robotXtoLM and 
-    robotYtoLM) and the provided Landmark object.*/
+  /*Returns the pose of a landmark based on its distance from the robot and the provided Landmark object.*/
   geometry_msgs::Pose populateLandmarkPose(const Landmark& landmark, double robotXtoLM, double robotYtoLM)
 {
     geometry_msgs::Pose landmark_pose;
@@ -378,9 +369,7 @@ public:
     return landmark_pose;
 }
 
-  /*Publishes the pose of a landmark as a marker on the specified markerId topic. It uses the distances 
-  between the robot and the landmark (robotXtoLM and robotYtoLM), along with the landmark's radius, to create and 
-  publish the marker.*/
+  /*Publishes the pose of a landmark. */
   visualization_msgs::Marker publishLandmarkPose(int markerId, double robotXtoLM, double robotYtoLM, double landmark_radius)
 {
     visualization_msgs::Marker landmark_shape;

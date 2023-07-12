@@ -3,7 +3,7 @@
 #include <actionlib/client/simple_action_client.h>
 typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
 
-
+//Thanks to http://wiki.ros.org/navigation/Tutorials/SendingSimpleGoals
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "map_navigation");
