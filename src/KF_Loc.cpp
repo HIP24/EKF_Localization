@@ -37,17 +37,10 @@ private:
   // State and covariance of the turtlebot
   Eigen::VectorXd m_t;
   Eigen::MatrixXd cov_t;
-  double sigma_x_cov = 0.1;
-  double sigma_y_cov = 0.1;
-  double sigma_theta_cov = 0.1;
-
   // Matrices for prediction and correction
   Eigen::MatrixXd A;
   Eigen::MatrixXd R;
   Eigen::MatrixXd Q;
-  double sigma_x_R = 0.1;
-  double sigma_y_R = 0.1;
-  double sigma_theta_R = 0.1;
   double delta_t = 0.1;
 
   // Position and orientation of the turtlebot
@@ -90,9 +83,9 @@ public:
 
     // Initialize process noise R
     R.resize(3, 3);
-    R << 0.01, 0, 0,
-        0, 0.01, 0,
-        0, 0, 0.01;
+    R << 0.001, 0, 0,
+        0, 0.001, 0,
+        0, 0, 0.001;
 
     // Initialize measurement noise Q
     Q.resize(3, 3);
@@ -268,8 +261,8 @@ public:
 
     // Sum for cov_t
     cov_E << 0., 0., 0.,
-            0., 0., 0.,
-            0., 0., 0.;
+             0., 0., 0.,
+             0., 0., 0.;
 
     // For every landmark...
     for (const auto &landmark : landmarks)
